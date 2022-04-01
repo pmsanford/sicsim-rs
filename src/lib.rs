@@ -1,5 +1,5 @@
 use num_derive::FromPrimitive;
-use std::{fmt::Debug, ops::Add};
+use std::fmt::Debug;
 pub type Word = [u8; 3];
 
 trait WordExt {
@@ -36,68 +36,6 @@ fn u32_to_word(i: u32) -> Word {
         ((i & 0x00_00_FF_00) >> 8) as u8,
         (i & 0x00_00_00_FF) as u8,
     ]
-}
-
-#[derive(Debug)]
-pub struct Integer(Word);
-
-impl Add<u32> for Integer {
-    type Output = Integer;
-
-    fn add(self, rhs: u32) -> Self::Output {
-        let lhs: u32 = self.into();
-        Integer::from(lhs + rhs)
-    }
-}
-
-impl From<Word> for Integer {
-    fn from(w: Word) -> Self {
-        Self(w)
-    }
-}
-
-impl From<u32> for Integer {
-    fn from(i: u32) -> Self {
-        Self([
-            ((i & 0x00_FF_00_00) >> 16) as u8,
-            ((i & 0x00_00_FF_00) >> 8) as u8,
-            (i & 0x00_00_00_FF) as u8,
-        ])
-    }
-}
-
-impl From<i32> for Integer {
-    fn from(i: i32) -> Self {
-        Self([
-            ((i & 0x00_FF_00_00) >> 16) as u8,
-            ((i & 0x00_00_FF_00) >> 8) as u8,
-            (i & 0x00_00_00_FF) as u8,
-        ])
-    }
-}
-
-impl Into<u32> for Integer {
-    fn into(self) -> u32 {
-        self.0.as_u32()
-    }
-}
-
-impl Into<usize> for Integer {
-    fn into(self) -> usize {
-        self.0.as_usize()
-    }
-}
-
-impl Into<i32> for Integer {
-    fn into(self) -> i32 {
-        self.0.as_i32()
-    }
-}
-
-impl Into<Word> for Integer {
-    fn into(self) -> Word {
-        self.0
-    }
 }
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
@@ -294,24 +232,24 @@ mod test {
     use super::*;
 
     #[test]
-    fn integer_word() {
-        let u: u32 = Integer([0xFF, 0xFF, 0xFF]).into();
+    fn word_ext() {
+        let u: u32 = [0xFF, 0xFF, 0xFF].as_u32();
         assert_eq!(u, 0x00FFFFFF);
-        let u: u32 = Integer([0xAB, 0xCD, 0xEF]).into();
+        let u: u32 = [0xAB, 0xCD, 0xEF].as_u32();
         assert_eq!(u, 0x00ABCDEF);
-        let u: u32 = Integer::from(0x00CAFEBA).into();
+        let u: u32 = u32_to_word(0x00CAFEBA).as_u32();
         assert_eq!(u, 0x00CAFEBA);
-        let u: usize = Integer::from(0x00DEDBEF).into();
+        let u: usize = u32_to_word(0x00DEDBEF).as_usize();
         assert_eq!(u, 0x00DEDBEF);
-        let i: i32 = Integer::from((-5 as i32) as u32).into();
+        let i: i32 = u32_to_word((-5 as i32) as u32).as_i32();
         assert_eq!(i, -5);
-        let i: i32 = Integer::from(350).into();
+        let i: i32 = u32_to_word(350).as_i32();
         assert_eq!(i, 350);
-        let w: Word = Integer::from(0xCAFEBA).into();
+        let w: Word = u32_to_word(0xCAFEBA);
         assert_eq!(w, [0xCA, 0xFE, 0xBA]);
-        let w: Word = Integer::from(-1).into();
+        let w: Word = u32_to_word((-1 as i32) as u32);
         assert_eq!(w, [0xFF, 0xFF, 0xFF]);
-        let w: Word = Integer::from(-2).into();
+        let w: Word = u32_to_word((-2 as i32) as u32);
         assert_eq!(w, [0xFF, 0xFF, 0xFE]);
     }
 
@@ -355,26 +293,17 @@ mod test {
 
     #[test]
     fn lda() {
-        let mut vm = Vm::empty();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::LDA,
-                indexed: false,
-                address: 3,
-            },
-        );
+        let mut vm = setup_op(OpCode::LDA, 3);
         set_int(&mut vm, 3, 0xAB);
 
         vm.step();
 
-        let a_val: u32 = Integer(vm.A).into();
+        let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0xAB);
         assert_eq!(vm.PC[2], 3);
 
         let mut vm = Vm::empty();
-        vm.X = Integer::from(3).into();
+        vm.X = u32_to_word(3);
         set_op(
             &mut vm,
             0,
@@ -388,44 +317,26 @@ mod test {
         set_int(&mut vm, 6, 0xBA);
         vm.step();
 
-        let a_val: u32 = Integer(vm.A).into();
+        let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0xBA);
         assert_eq!(vm.PC[2], 3);
     }
 
     #[test]
     fn sta() {
-        let mut vm = Vm::empty();
-        vm.A = Integer::from(0xAAAA).into();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::STA,
-                indexed: false,
-                address: 3,
-            },
-        );
+        let mut vm = setup_op(OpCode::STA, 3);
+        vm.A = u32_to_word(0xAAAA);
 
         vm.step();
 
-        let a_val: u32 = Integer::from(vm.word_at(3, false)).into();
+        let a_val: u32 = vm.word_at(3, false).as_u32();
         assert_eq!(a_val, 0xAAAA);
         assert_eq!(vm.PC[2], 3);
     }
 
     #[test]
     fn load_store() {
-        let mut vm = Vm::empty();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::LDA,
-                indexed: false,
-                address: 99,
-            },
-        );
+        let mut vm = setup_op(OpCode::LDA, 99);
         set_op(
             &mut vm,
             3,
@@ -440,99 +351,54 @@ mod test {
         vm.step();
         vm.step();
 
-        let stored: u32 = Integer::from(vm.word_at(102, false)).into();
+        let stored: u32 = vm.word_at(102, false).as_u32();
         assert_eq!(stored, 0xBEEF);
     }
 
     #[test]
     fn ch() {
-        let mut vm = Vm::empty();
+        let mut vm = setup_op(OpCode::LDCH, 100);
         set_int(&mut vm, 99, 0xBE00);
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::LDCH,
-                indexed: false,
-                address: 100,
-            },
-        );
 
         vm.step();
 
-        let a_val: u32 = Integer::from(vm.A).into();
+        let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0xBE);
-        let mut vm = Vm::empty();
-        vm.A = Integer::from(0xBA).into();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::STCH,
-                indexed: false,
-                address: 100,
-            },
-        );
+        let mut vm = setup_op(OpCode::STCH, 100);
+        vm.A = u32_to_word(0xBA);
 
         vm.step();
 
-        let m_val: u32 = Integer::from(vm.word_at(98, false)).into();
+        let m_val: u32 = vm.word_at(98, false).as_u32();
         assert_eq!(m_val, 0xBA);
     }
 
     #[test]
     fn bitwise() {
-        let mut vm = Vm::empty();
+        let mut vm = setup_op(OpCode::OR, 99);
         set_int(&mut vm, 99, 0x8181);
-        vm.A = Integer::from(0x1818).into();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::OR,
-                indexed: false,
-                address: 99,
-            },
-        );
+        vm.A = u32_to_word(0x1818);
 
         vm.step();
 
-        let a_val: u32 = Integer::from(vm.A).into();
+        let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0x9999);
 
-        let mut vm = Vm::empty();
+        let mut vm = setup_op(OpCode::AND, 99);
         set_int(&mut vm, 99, 0x8181);
-        vm.A = Integer::from(0xFFFF).into();
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::AND,
-                indexed: false,
-                address: 99,
-            },
-        );
+        vm.A = u32_to_word(0xFFFF);
 
         vm.step();
 
-        let a_val: u32 = Integer::from(vm.A).into();
+        let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0x8181);
     }
 
     #[test]
     fn math() {
-        let mut vm = Vm::empty();
+        let mut vm = setup_op(OpCode::ADD, 99);
         set_int(&mut vm, 99, (-32 as i32) as u32);
         vm.A = u32_to_word(32);
-        set_op(
-            &mut vm,
-            0,
-            Op {
-                opcode: OpCode::ADD,
-                indexed: false,
-                address: 99,
-            },
-        );
 
         vm.step();
 

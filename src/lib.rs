@@ -2,6 +2,42 @@ use num_derive::FromPrimitive;
 use std::{fmt::Debug, ops::Add};
 pub type Word = [u8; 3];
 
+trait WordExt {
+    fn as_u32(&self) -> u32;
+    fn as_usize(&self) -> usize;
+    fn as_i32(&self) -> i32;
+}
+
+impl WordExt for Word {
+    fn as_u32(&self) -> u32 {
+        ((self[0] as u32) << 16) + ((self[1] as u32) << 8) + self[2] as u32
+    }
+
+    fn as_usize(&self) -> usize {
+        ((self[0] as usize) << 16) + ((self[1] as usize) << 8) + self[2] as usize
+    }
+
+    fn as_i32(&self) -> i32 {
+        let neg = self[0] & 0x80 > 0;
+        let msb = self[0] & 0x7F;
+        let val = ((msb as u32) << 16) + ((self[1] as u32) << 8) + (self[2] as u32);
+        if neg {
+            // Don't do any twos complement just sign extend baybee
+            (val | 0xFF_80_00_00) as i32
+        } else {
+            val as i32
+        }
+    }
+}
+
+fn u32_to_word(i: u32) -> Word {
+    [
+        ((i & 0x00_FF_00_00) >> 16) as u8,
+        ((i & 0x00_00_FF_00) >> 8) as u8,
+        (i & 0x00_00_00_FF) as u8,
+    ]
+}
+
 #[derive(Debug)]
 pub struct Integer(Word);
 
@@ -42,27 +78,19 @@ impl From<i32> for Integer {
 
 impl Into<u32> for Integer {
     fn into(self) -> u32 {
-        ((self.0[0] as u32) << 16) + ((self.0[1] as u32) << 8) + self.0[2] as u32
+        self.0.as_u32()
     }
 }
 
 impl Into<usize> for Integer {
     fn into(self) -> usize {
-        ((self.0[0] as usize) << 16) + ((self.0[1] as usize) << 8) + self.0[2] as usize
+        self.0.as_usize()
     }
 }
 
 impl Into<i32> for Integer {
     fn into(self) -> i32 {
-        let neg = self.0[0] & 0x80 > 0;
-        let msb = self.0[0] & 0x7F;
-        let val = ((msb as u32) << 16) + ((self.0[1] as u32) << 8) + (self.0[2] as u32);
-        if neg {
-            // Don't do any twos complement just sign extend baybee
-            (val | 0xFF_80_00_00) as i32
-        } else {
-            val as i32
-        }
+        self.0.as_i32()
     }
 }
 
@@ -74,7 +102,7 @@ impl Into<Word> for Integer {
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
 enum OpCode {
-    OR = 0x44,
+    OR = 0x44, // x
     RD = 0xD8,
     RSUB = 0x4C,
     STA = 0x0C,  // x
@@ -83,8 +111,8 @@ enum OpCode {
     STSW = 0xE8, // x
     STX = 0x10,  // x
     SUB = 0x1C,
-    ADD = 0x18,
-    AND = 0x40,
+    ADD = 0x18, // x
+    AND = 0x40, // x
     COMP = 0x28,
     DIV = 0x24,
     J = 0x3C,
@@ -167,11 +195,7 @@ impl Vm {
     }
 
     fn calc_addr(&self, address: u16, indexed: bool) -> usize {
-        let idx: usize = if indexed {
-            Integer::from(self.X).into()
-        } else {
-            0
-        };
+        let idx: usize = if indexed { self.X.as_usize() } else { 0 };
         address as usize + idx
     }
 
@@ -198,6 +222,7 @@ impl Vm {
     pub fn step(&mut self) {
         let op = Op::from_word(self.word_at(self.pc_address(), false)).unwrap();
         match op.opcode {
+            // Load/store
             OpCode::LDA => {
                 self.A = self.word_at(op.address, op.indexed);
             }
@@ -227,10 +252,40 @@ impl Vm {
             OpCode::STSW => {
                 self.set_at(op.address, op.indexed, self.SW);
             }
+
+            // Bitwise
+            OpCode::OR => {
+                let memory = self.word_at(op.address, op.indexed);
+                self.A = [
+                    self.A[0] | memory[0],
+                    self.A[1] | memory[1],
+                    self.A[2] | memory[2],
+                ];
+            }
+            OpCode::AND => {
+                let memory = self.word_at(op.address, op.indexed);
+                self.A = [
+                    self.A[0] & memory[0],
+                    self.A[1] & memory[1],
+                    self.A[2] & memory[2],
+                ];
+            }
+
+            // Math
+            OpCode::ADD => {
+                let memory = self.word_at(op.address, op.indexed);
+                // TODO: Simulate 24-bit overflow
+                self.A = u32_to_word(self.A.as_u32() + memory.as_u32());
+            }
             opcode => unimplemented!(r"Opcode {:?} not implemented", opcode),
         }
 
-        self.PC = (Integer::from(self.PC) + 3).into();
+        match op.opcode {
+            // TODO: jumps etc shouldn't increment
+            _ => {
+                self.PC = u32_to_word(self.PC.as_u32() + 3);
+            }
+        }
     }
 }
 
@@ -282,6 +337,20 @@ mod test {
             vm.memory[address + 1],
             vm.memory[address + 2]
         );
+    }
+
+    fn setup_op(opcode: OpCode, address: u16) -> Vm {
+        let mut vm = Vm::empty();
+        set_op(
+            &mut vm,
+            0,
+            Op {
+                opcode,
+                indexed: false,
+                address,
+            },
+        );
+        vm
     }
 
     #[test]
@@ -409,5 +478,71 @@ mod test {
 
         let m_val: u32 = Integer::from(vm.word_at(98, false)).into();
         assert_eq!(m_val, 0xBA);
+    }
+
+    #[test]
+    fn bitwise() {
+        let mut vm = Vm::empty();
+        set_int(&mut vm, 99, 0x8181);
+        vm.A = Integer::from(0x1818).into();
+        set_op(
+            &mut vm,
+            0,
+            Op {
+                opcode: OpCode::OR,
+                indexed: false,
+                address: 99,
+            },
+        );
+
+        vm.step();
+
+        let a_val: u32 = Integer::from(vm.A).into();
+        assert_eq!(a_val, 0x9999);
+
+        let mut vm = Vm::empty();
+        set_int(&mut vm, 99, 0x8181);
+        vm.A = Integer::from(0xFFFF).into();
+        set_op(
+            &mut vm,
+            0,
+            Op {
+                opcode: OpCode::AND,
+                indexed: false,
+                address: 99,
+            },
+        );
+
+        vm.step();
+
+        let a_val: u32 = Integer::from(vm.A).into();
+        assert_eq!(a_val, 0x8181);
+    }
+
+    #[test]
+    fn math() {
+        let mut vm = Vm::empty();
+        set_int(&mut vm, 99, (-32 as i32) as u32);
+        vm.A = u32_to_word(32);
+        set_op(
+            &mut vm,
+            0,
+            Op {
+                opcode: OpCode::ADD,
+                indexed: false,
+                address: 99,
+            },
+        );
+
+        vm.step();
+
+        assert_eq!(vm.A.as_i32(), 0);
+        vm.PC = u32_to_word(0);
+        vm.step();
+        assert_eq!(vm.A.as_i32(), -32);
+        set_int(&mut vm, 99, 64);
+        vm.PC = u32_to_word(0);
+        vm.step();
+        assert_eq!(vm.A.as_i32(), 32);
     }
 }

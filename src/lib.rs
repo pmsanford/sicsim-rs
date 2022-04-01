@@ -10,17 +10,20 @@ trait WordExt {
 
 impl WordExt for Word {
     fn as_u32(&self) -> u32 {
-        ((self[0] as u32) << 16) + ((self[1] as u32) << 8) + self[2] as u32
+        let [a, b, c] = *self;
+        u32::from_be_bytes([0, a, b, c])
     }
 
     fn as_usize(&self) -> usize {
-        ((self[0] as usize) << 16) + ((self[1] as usize) << 8) + self[2] as usize
+        let [a, b, c] = *self;
+        usize::from_be_bytes([0, 0, 0, 0, 0, a, b, c])
     }
 
     fn as_i32(&self) -> i32 {
-        let neg = self[0] & 0x80 > 0;
-        let msb = self[0] & 0x7F;
-        let val = ((msb as u32) << 16) + ((self[1] as u32) << 8) + (self[2] as u32);
+        let [msb, mid, lsb] = *self;
+        let neg = msb & 0x80 > 0;
+        let msb = msb & 0x7F;
+        let val = u32::from_be_bytes([0, msb, mid, lsb]);
         if neg {
             // Don't do any twos complement just sign extend baybee
             (val | 0xFF_80_00_00) as i32
@@ -31,11 +34,8 @@ impl WordExt for Word {
 }
 
 fn u32_to_word(i: u32) -> Word {
-    [
-        ((i & 0x00_FF_00_00) >> 16) as u8,
-        ((i & 0x00_00_FF_00) >> 8) as u8,
-        (i & 0x00_00_00_FF) as u8,
-    ]
+    let [_, a, b, c] = i.to_be_bytes();
+    [a, b, c]
 }
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
@@ -80,7 +80,7 @@ impl Op {
         num::FromPrimitive::from_u8(word[0]).map(|opcode| Self {
             opcode,
             indexed: word[1] & 0b1000_0000 > 0,
-            address: (((word[1] & 0b0111_1111) as u16) << 8) + word[2] as u16,
+            address: u16::from_be_bytes([word[1] & 0x7F, word[2]]),
         })
     }
 }
@@ -88,8 +88,8 @@ impl Op {
 impl Into<Word> for Op {
     fn into(self) -> Word {
         let opcode = self.opcode as u8;
-        let mut msb = ((self.address & 0x7F_00) >> 8) as u8;
-        let lsb = (self.address & 0x00_FF) as u8;
+        let [msb, lsb] = self.address.to_be_bytes();
+        let mut msb = msb & 0x7F;
         if self.indexed {
             msb = msb | 0x80;
         }
@@ -154,7 +154,7 @@ impl Vm {
     }
 
     fn pc_address(&self) -> u16 {
-        ((self.PC[1] as u16) << 8) + self.PC[2] as u16
+        u16::from_be_bytes([self.PC[1], self.PC[2]])
     }
 
     pub fn step(&mut self) {
@@ -254,9 +254,10 @@ mod test {
     }
 
     fn set_int(vm: &mut Vm, address: usize, v: u32) {
-        vm.memory[address] = ((v & 0xFF_00_00) >> 16) as u8;
-        vm.memory[address + 1] = ((v & 0x00_FF_00) >> 8) as u8;
-        vm.memory[address + 2] = (v & 0x00_00_FF) as u8;
+        let [_, a, b, c] = v.to_be_bytes();
+        vm.memory[address] = a;
+        vm.memory[address + 1] = b;
+        vm.memory[address + 2] = c;
     }
 
     fn set_op(vm: &mut Vm, address: usize, op: Op) {

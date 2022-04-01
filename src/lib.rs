@@ -48,11 +48,11 @@ enum OpCode {
     STL = 0x14,  // x
     STSW = 0xE8, // x
     STX = 0x10,  // x
-    SUB = 0x1C,
-    ADD = 0x18, // x
-    AND = 0x40, // x
+    SUB = 0x1C,  // x
+    ADD = 0x18,  // x
+    AND = 0x40,  // x
     COMP = 0x28,
-    DIV = 0x24,
+    DIV = 0x24, // x
     J = 0x3C,
     JEQ = 0x30,
     JGT = 0x34,
@@ -62,7 +62,7 @@ enum OpCode {
     LDCH = 0x50, // x
     LDL = 0x08,  // x
     LDX = 0x04,  // x
-    MUL = 0x20,
+    MUL = 0x20,  // x
     TD = 0xE0,
     TIX = 0x2C,
     WD = 0xDC,
@@ -212,8 +212,19 @@ impl Vm {
             // Math
             OpCode::ADD => {
                 let memory = self.word_at(op.address, op.indexed);
-                // TODO: Simulate 24-bit overflow
-                self.A = u32_to_word(self.A.as_u32() + memory.as_u32());
+                self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
+            }
+            OpCode::SUB => {
+                let memory = self.word_at(op.address, op.indexed);
+                self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
+            }
+            OpCode::MUL => {
+                let memory = self.word_at(op.address, op.indexed);
+                self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
+            }
+            OpCode::DIV => {
+                let memory = self.word_at(op.address, op.indexed);
+                self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
             }
             opcode => unimplemented!(r"Opcode {:?} not implemented", opcode),
         }
@@ -396,6 +407,16 @@ mod test {
     }
 
     #[test]
+    fn overflow() {
+        let mut vm = setup_op(OpCode::ADD, 99);
+        set_int(&mut vm, 99, 0xFF_FF_FF);
+        vm.A = u32_to_word(1);
+
+        vm.step();
+        assert_eq!(vm.A.as_i32(), 0);
+    }
+
+    #[test]
     fn math() {
         let mut vm = setup_op(OpCode::ADD, 99);
         set_int(&mut vm, 99, (-32 as i32) as u32);
@@ -411,5 +432,29 @@ mod test {
         vm.PC = u32_to_word(0);
         vm.step();
         assert_eq!(vm.A.as_i32(), 32);
+
+        let mut vm = setup_op(OpCode::SUB, 99);
+        set_int(&mut vm, 99, 10);
+        vm.A = u32_to_word(5);
+
+        vm.step();
+
+        assert_eq!(vm.A.as_i32(), -5);
+
+        let mut vm = setup_op(OpCode::MUL, 99);
+        set_int(&mut vm, 99, 10);
+        vm.A = u32_to_word(5);
+
+        vm.step();
+
+        assert_eq!(vm.A.as_i32(), 50);
+
+        let mut vm = setup_op(OpCode::DIV, 99);
+        set_int(&mut vm, 99, 5);
+        vm.A = u32_to_word(10);
+
+        vm.step();
+
+        assert_eq!(vm.A.as_i32(), 2);
     }
 }

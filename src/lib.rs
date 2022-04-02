@@ -1,5 +1,5 @@
 use num_derive::FromPrimitive;
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 pub type Word = [u8; 3];
 
 trait WordExt {
@@ -40,33 +40,33 @@ fn u32_to_word(i: u32) -> Word {
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
 enum OpCode {
-    ADD = 0x18,  // x
-    AND = 0x40,  // x
-    COMP = 0x28, // x
-    DIV = 0x24,  // x
-    J = 0x3C,    // x
-    JEQ = 0x30,  // x
-    JGT = 0x34,  // x
-    JLT = 0x38,  // x
-    JSUB = 0x48, // x
-    LDA = 0x00,  // x
-    LDCH = 0x50, // x
-    LDL = 0x08,  // x
-    LDX = 0x04,  // x
-    MUL = 0x20,  // x
+    ADD = 0x18,
+    AND = 0x40,
+    COMP = 0x28,
+    DIV = 0x24,
+    J = 0x3C,
+    JEQ = 0x30,
+    JGT = 0x34,
+    JLT = 0x38,
+    JSUB = 0x48,
+    LDA = 0x00,
+    LDCH = 0x50,
+    LDL = 0x08,
+    LDX = 0x04,
+    MUL = 0x20,
 
-    OR = 0x44, // x
+    OR = 0x44,
     RD = 0xD8,
-    RSUB = 0x4C, // x
-    STA = 0x0C,  // x
-    STCH = 0x54, // x
-    STL = 0x14,  // x
-    STSW = 0xE8, // x
-    STX = 0x10,  // x
-    SUB = 0x1C,  // x
+    RSUB = 0x4C,
+    STA = 0x0C,
+    STCH = 0x54,
+    STL = 0x14,
+    STSW = 0xE8,
+    STX = 0x10,
+    SUB = 0x1C,
 
     TD = 0xE0,
-    TIX = 0x2C, // x
+    TIX = 0x2C,
     WD = 0xDC,
 }
 
@@ -100,6 +100,12 @@ impl Into<Word> for Op {
     }
 }
 
+trait Device {
+    fn test(&mut self) -> bool;
+    fn read(&mut self) -> u8;
+    fn write(&mut self, data: u8);
+}
+
 #[allow(non_snake_case)]
 pub struct Vm {
     memory: [u8; 1 << 15],
@@ -108,6 +114,7 @@ pub struct Vm {
     L: Word,  // 2
     PC: Word, // 8
     SW: Word, // 9
+    devices: HashMap<Word, Box<dyn Device>>,
 }
 
 impl Debug for Vm {
@@ -131,6 +138,27 @@ impl Vm {
             L: [0; 3],
             PC: [0; 3],
             SW: [0; 3],
+            devices: HashMap::new(),
+        }
+    }
+
+    fn test_device(&mut self, device_id: Word) -> bool {
+        self.devices
+            .get_mut(&device_id)
+            .map(|device| device.test())
+            .unwrap_or(false)
+    }
+
+    fn read_device(&mut self, device_id: Word) -> u8 {
+        self.devices
+            .get_mut(&device_id)
+            .map(|device| device.read())
+            .unwrap_or(0)
+    }
+
+    fn write_device(&mut self, device_id: Word, data: u8) {
+        if let Some(device) = self.devices.get_mut(&device_id) {
+            device.write(data);
         }
     }
 
@@ -278,13 +306,32 @@ impl Vm {
                 self.X = u32_to_word(self.X.as_u32() + 1);
                 self.comp(self.X, op.address, op.indexed);
             }
-            opcode => unimplemented!(r"Opcode {:?} not implemented", opcode),
+
+            // Devices
+            OpCode::RD => {
+                let device_id = self.word_at(op.address, op.indexed);
+                self.A[2] = self.read_device(device_id);
+            }
+            OpCode::TD => {
+                let device_id = self.word_at(op.address, op.indexed);
+                if self.test_device(device_id) {
+                    self.SW[2] = (self.SW[2] & 0xFC) | 0b0001;
+                } else {
+                    self.SW[2] = (self.SW[2] & 0xFC) | 0b0000;
+                }
+            }
+            OpCode::WD => {
+                let device_id = self.word_at(op.address, op.indexed);
+                self.write_device(device_id, self.A[2]);
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use std::{cell::RefCell, ops::Deref, rc::Rc};
+
     use super::*;
 
     #[test]
@@ -667,5 +714,89 @@ mod test {
         assert_eq!(vm.A.as_u32(), 15);
         assert_eq!(vm.X.as_u32(), 15);
         assert_eq!(vm.PC.as_u32(), 15);
+    }
+
+    struct TestDevice {
+        tested: bool,
+        content: String,
+        pointer: usize,
+        write_buf: Rc<RefCell<Vec<u8>>>,
+    }
+
+    impl Device for TestDevice {
+        fn test(&mut self) -> bool {
+            if self.tested {
+                true
+            } else {
+                self.tested = true;
+                false
+            }
+        }
+
+        fn read(&mut self) -> u8 {
+            let d = self.content.chars().skip(self.pointer).next().unwrap() as u8;
+            self.pointer = self.pointer + 1;
+            if self.pointer >= self.content.len() {
+                self.pointer = 0;
+            }
+            d
+        }
+
+        fn write(&mut self, data: u8) {
+            self.write_buf.deref().borrow_mut().push(data);
+        }
+    }
+
+    #[test]
+    fn devices() {
+        let mut vm = setup_op(OpCode::TD, 99);
+        let write_buf = Rc::new(RefCell::new(Vec::new()));
+        vm.devices.insert(
+            u32_to_word(1),
+            Box::new(TestDevice {
+                tested: false,
+                content: String::from("Hello"),
+                pointer: 0,
+                write_buf: Rc::clone(&write_buf),
+            }),
+        );
+        set_int(&mut vm, 99, 1);
+        set_int(&mut vm, 102, 9);
+        set_int(&mut vm, 105, 21);
+        set_int(&mut vm, 108, 5);
+        set_int(&mut vm, 203, 12);
+        set_int(&mut vm, 206, 1234);
+        ni_op(&mut vm, 3, OpCode::JLT, 102);
+        ni_op(&mut vm, 6, OpCode::J, 200);
+        ni_op(&mut vm, 9, OpCode::RD, 99);
+        ni_op(&mut vm, 12, OpCode::TD, 99);
+        ni_op(&mut vm, 15, OpCode::JLT, 105);
+        ni_op(&mut vm, 18, OpCode::J, 203);
+        ni_op(&mut vm, 21, OpCode::WD, 99);
+        ni_op(&mut vm, 24, OpCode::TIX, 108);
+        ni_op(&mut vm, 27, OpCode::JLT, 200);
+        ni_op(&mut vm, 30, OpCode::LDA, 206);
+
+        vm.step();
+        vm.step();
+        vm.step();
+        assert_eq!(vm.PC.as_u32(), 0);
+
+        vm.step();
+        vm.step();
+        vm.step();
+
+        assert_eq!(vm.A[2], 'H' as u8);
+
+        for _ in 0..1000 {
+            if vm.A.as_u32() == 1234 {
+                break;
+            }
+            vm.step();
+        }
+
+        let buf = write_buf.deref().borrow();
+
+        assert_eq!(*buf, vec![72, 101, 108, 108, 111]);
     }
 }

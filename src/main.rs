@@ -12,7 +12,41 @@ static OPCODES: OnceCell<HashMap<String, u8>> = OnceCell::new();
 static LINE_REGEX: OnceCell<Regex> = OnceCell::new();
 //static LINE_REGEX_PATTERN: &str = r#"^(([^.\s]\S*)|\s)\s+(\S+)[^\n\S]+([^\s\n,]*)(,X)?[^\n]*"#;
 static LINE_REGEX_PATTERN: &str =
-    r#"^(?:(?P<label>[^.\s]\S*)|\s)\s+(?P<directive>\S+)(?:[^\n\S]+|$)(?P<target>\S*)[^\n]*"#;
+    r#"^(?:(?P<label>[^.\s]\S*)|\s)\s+(?P<directive>\S+)(?:[^\n\S]+|$)(?P<argument>\S*)[^\n]*"#;
+
+fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
+    Ok(match directive {
+        opcode if OPCODES.get().unwrap().contains_key(opcode) => 3,
+        "START" => 0,
+        "BYTE" => {
+            let argument =
+                argument.ok_or_else(|| anyhow::Error::msg("Byte directive requires argument"))?;
+            if argument.starts_with("C'") {
+                argument.len() - 3
+            } else if argument.starts_with("X'") {
+                (argument.len() - 3) / 2
+            } else {
+                return Err(anyhow::Error::msg(format!(
+                    "Invalid byte directive {}",
+                    argument
+                )));
+            }
+        }
+        "WORD" => 3,
+        "RESW" => {
+            let argument =
+                argument.ok_or_else(|| anyhow::Error::msg("RESW directive requires argument"))?;
+            argument.parse::<usize>()? * 3
+        }
+        "RESB" => {
+            let argument =
+                argument.ok_or_else(|| anyhow::Error::msg("RESB directive requires argument"))?;
+            argument.parse::<usize>()?
+        }
+        "END" => 0,
+        unknown => return Err(anyhow::Error::msg(format!("Unknown directive {}", unknown))),
+    })
+}
 
 fn build_opcodes() -> HashMap<String, u8> {
     [
@@ -50,25 +84,35 @@ fn build_opcodes() -> HashMap<String, u8> {
 struct ParsedLine {
     label: Option<String>,
     directive: String,
-    target: Option<String>,
+    argument: Option<String>,
+    size: usize,
 }
 
-fn parse_line(line: &str) -> Option<ParsedLine> {
+fn parse_line(line: &str) -> Result<Option<ParsedLine>> {
     LINE_REGEX
         .get()
         .unwrap()
         .captures(line)
-        .map(|cap| ParsedLine {
-            label: cap.name("label").map(|m| m.as_str().to_owned()),
-            directive: cap
+        .map(|cap| {
+            let directive = cap
                 .name("directive")
                 .map(|m| m.as_str().to_owned())
-                .unwrap(),
-            target: cap
-                .name("target")
+                .unwrap();
+            let argument = cap
+                .name("argument")
                 .filter(|m| m.as_str().len() > 0)
-                .map(|m| m.as_str().to_owned()),
+                .map(|m| m.as_str().to_owned());
+
+            let size = size(&directive, argument.as_ref())?;
+
+            Ok(ParsedLine {
+                label: cap.name("label").map(|m| m.as_str().to_owned()),
+                directive,
+                argument,
+                size,
+            })
         })
+        .transpose()
 }
 
 fn main() -> Result<()> {

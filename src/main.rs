@@ -2,6 +2,7 @@ use anyhow::Result;
 use regex::Regex;
 use std::{
     collections::HashMap,
+    fmt::Display,
     fs::File,
     io::{BufRead, BufReader},
 };
@@ -86,9 +87,10 @@ struct ParsedLine {
     directive: String,
     argument: Option<String>,
     size: usize,
+    offset: usize,
 }
 
-fn parse_line(line: &str) -> Result<Option<ParsedLine>> {
+fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
     LINE_REGEX
         .get()
         .unwrap()
@@ -110,9 +112,68 @@ fn parse_line(line: &str) -> Result<Option<ParsedLine>> {
                 directive,
                 argument,
                 size,
+                offset,
             })
         })
         .transpose()
+}
+
+#[derive(Debug)]
+struct Instruction {
+    opcode: u8,
+    indexed: bool,
+    target: u16,
+}
+
+#[derive(Debug)]
+struct Text {
+    address: usize,
+    instructions: Vec<Instruction>,
+}
+
+#[derive(Debug)]
+enum Record {
+    Header {
+        name: String,
+        start: usize,
+        length: usize,
+    },
+    Text(Text),
+    End {
+        first_instruction: usize,
+    },
+}
+
+impl Display for Record {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Record::Header {
+                name,
+                start,
+                length,
+            } => {
+                write!(f, "H{:<6}{:0>6X}{:0>6X}", name, start, length)
+            }
+            Record::Text(text) => {
+                write!(
+                    f,
+                    "T{:0>6X}{:0>6X}",
+                    text.address,
+                    text.instructions.len() * 3
+                )?;
+                for instruction in text.instructions.iter() {
+                    let mut target = instruction.target & 0x7F;
+                    if instruction.indexed {
+                        target += 0x80;
+                    }
+                    write!(f, "{:0>2X}{:0>4X}", instruction.opcode, target)?;
+                }
+
+                Ok(())
+            }
+            Record::End { first_instruction } => write!(f, "E{:0>6}", first_instruction),
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -121,8 +182,99 @@ fn main() -> Result<()> {
 
     let file = File::open("example.asm")?;
 
-    for (lineno, line) in BufReader::new(file).lines().enumerate() {
-        println!("{:3}: {:?}", lineno, parse_line(&line?));
+    let mut cur_loc = 0;
+    let mut lines = vec![];
+    let mut labels = HashMap::new();
+
+    for line in BufReader::new(file).lines() {
+        let parsed = parse_line(&line?, cur_loc)?;
+        if let Some(parsed) = parsed {
+            cur_loc += parsed.size;
+            if let Some(label) = parsed.label.as_ref() {
+                //TODO: Assumes only one START
+                labels.insert(label.clone(), parsed.offset);
+            }
+            lines.push(parsed);
+        }
+    }
+
+    let start = &lines[0];
+    let end = &lines[lines.len() - 1];
+
+    if start.directive != "START" {
+        return Err(anyhow::Error::msg("Expected start directive"));
+    }
+    if end.directive != "END" {
+        return Err(anyhow::Error::msg("Expected end directive"));
+    }
+
+    let mut records = vec![];
+
+    let name = start.label.as_ref().expect("Expected name").clone();
+    let base = usize::from_str_radix(start.argument.as_ref().expect("Start argument"), 16).unwrap();
+    let length = end.offset;
+
+    records.push(Record::Header {
+        name,
+        start: base,
+        length,
+    });
+
+    let mut i = 1;
+
+    let mut cur_text = None;
+
+    while i < lines.len() {
+        let line = &lines[i];
+        let text = cur_text.take();
+        if let Some(op) = OPCODES.get().unwrap().get(&line.directive) {
+            let mut text = text.unwrap_or_else(|| Text {
+                address: line.offset + base,
+                instructions: vec![],
+            });
+            let indexed = line
+                .argument
+                .as_ref()
+                .map(|arg| arg.contains(",X"))
+                .unwrap_or(false);
+            let target = line
+                .argument
+                .as_ref()
+                .map(|arg| {
+                    let arg = if indexed {
+                        &arg[..arg.len() - 3]
+                    } else {
+                        arg.as_str()
+                    };
+                    *labels.get(arg).expect("Label not found")
+                })
+                .unwrap_or(0) as u16
+                + base as u16;
+            text.instructions.push(Instruction {
+                opcode: *op,
+                indexed,
+                target,
+            });
+            if text.instructions.len() == 10 {
+                records.push(Record::Text(text));
+            } else {
+                cur_text = Some(text);
+            }
+        } else {
+            if let Some(text) = text {
+                records.push(Record::Text(text));
+            }
+        }
+        i += 1;
+    }
+
+    records.push(Record::End {
+        first_instruction: start.offset,
+    });
+
+    println!("Records: {}", records.len());
+    for record in records {
+        println!("{}", record);
     }
 
     Ok(())

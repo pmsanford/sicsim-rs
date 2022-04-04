@@ -119,6 +119,13 @@ fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
 }
 
 #[derive(Debug)]
+enum Data {
+    Instruction(Instruction),
+    Byte(Vec<u8>),
+    Word(u32),
+}
+
+#[derive(Debug)]
 struct Instruction {
     opcode: u8,
     indexed: bool,
@@ -128,7 +135,7 @@ struct Instruction {
 #[derive(Debug)]
 struct Text {
     address: usize,
-    instructions: Vec<Instruction>,
+    instructions: Vec<Data>,
 }
 
 #[derive(Debug)]
@@ -157,21 +164,41 @@ impl Display for Record {
             Record::Text(text) => {
                 write!(
                     f,
-                    "T{:0>6X}{:0>6X}",
+                    "T{:0>6X}{:0>2X}",
                     text.address,
-                    text.instructions.len() * 3
+                    text.instructions
+                        .iter()
+                        .map(|i| match i {
+                            Data::Instruction(_) => 3,
+                            Data::Byte(bytes) => bytes.len(),
+                            Data::Word(_) => 3,
+                        })
+                        .sum::<usize>()
                 )?;
                 for instruction in text.instructions.iter() {
-                    let mut target = instruction.target & 0x7F;
-                    if instruction.indexed {
-                        target += 0x80;
+                    match instruction {
+                        Data::Instruction(instruction) => {
+                            let mut target = instruction.target & 0x7FFF;
+                            if instruction.indexed {
+                                target += 0x8000;
+                            }
+                            write!(f, "{:0>2X}{:0>4X}", instruction.opcode, target)?;
+                        }
+                        Data::Byte(bytes) => {
+                            for byte in bytes {
+                                write!(f, "{:0>2X}", byte)?;
+                            }
+                        }
+                        Data::Word(word) => {
+                            let [_, a, b, c] = word.to_be_bytes();
+                            write!(f, "{:0>2X}{:0>2X}{:0>2X}", a, b, c)?;
+                        }
                     }
-                    write!(f, "{:0>2X}{:0>4X}", instruction.opcode, target)?;
                 }
 
                 Ok(())
             }
-            Record::End { first_instruction } => write!(f, "E{:0>6}", first_instruction),
+            Record::End { first_instruction } => write!(f, "E{:0>6X}", first_instruction),
         }
     }
 }
@@ -242,19 +269,77 @@ fn main() -> Result<()> {
                 .as_ref()
                 .map(|arg| {
                     let arg = if indexed {
-                        &arg[..arg.len() - 3]
+                        &arg[..arg.len() - 2]
                     } else {
                         arg.as_str()
                     };
-                    *labels.get(arg).expect("Label not found")
+                    Ok::<usize, anyhow::Error>(*labels.get(arg).ok_or_else(|| {
+                        anyhow::Error::msg(format!("Couldn't find label {}", arg))
+                    })?)
                 })
-                .unwrap_or(0) as u16
-                + base as u16;
-            text.instructions.push(Instruction {
+                .transpose()?
+                .map(|addr| addr + base)
+                .unwrap_or(0) as u16;
+            text.instructions.push(Data::Instruction(Instruction {
                 opcode: *op,
                 indexed,
                 target,
+            }));
+            if text.instructions.len() == 10 {
+                records.push(Record::Text(text));
+            } else {
+                cur_text = Some(text);
+            }
+        } else if line.directive == "BYTE" {
+            let mut text = text.unwrap_or_else(|| Text {
+                address: line.offset + base,
+                instructions: vec![],
             });
+            if let Some((t, v)) = line
+                .argument
+                .as_ref()
+                .ok_or_else(|| anyhow::Error::msg("Byte requires argument"))?
+                .split_once("'")
+            {
+                match t {
+                    "X" => {
+                        let bytes = v[..v.len() - 1]
+                            .chars()
+                            .collect::<Vec<char>>()
+                            .chunks(2)
+                            .map(|c| c.iter().collect::<String>())
+                            .map(|s| u8::from_str_radix(&s, 16))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        text.instructions.push(Data::Byte(bytes));
+                    }
+                    "C" => {
+                        let bytes = v[..v.len() - 1]
+                            .chars()
+                            .map(|c| c as u8)
+                            .collect::<Vec<_>>();
+                        text.instructions.push(Data::Byte(bytes));
+                    }
+                    _ => return Err(anyhow::Error::msg("Invalid byte argument")),
+                }
+            } else {
+                return Err(anyhow::Error::msg("Invalid byte argument"));
+            }
+            if text.instructions.len() == 10 {
+                records.push(Record::Text(text));
+            } else {
+                cur_text = Some(text);
+            }
+        } else if line.directive == "WORD" {
+            let mut text = text.unwrap_or_else(|| Text {
+                address: line.offset + base,
+                instructions: vec![],
+            });
+            let argument = line
+                .argument
+                .as_ref()
+                .ok_or_else(|| anyhow::Error::msg("Invalid word argument"))?;
+            text.instructions
+                .push(Data::Word(u32::from_str_radix(&argument, 10)?));
             if text.instructions.len() == 10 {
                 records.push(Record::Text(text));
             } else {
@@ -269,10 +354,9 @@ fn main() -> Result<()> {
     }
 
     records.push(Record::End {
-        first_instruction: start.offset,
+        first_instruction: base,
     });
 
-    println!("Records: {}", records.len());
     for record in records {
         println!("{}", record);
     }

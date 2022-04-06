@@ -35,3 +35,8 @@ pub fn u32_to_word(i: u32) -> Word {
     let [_, a, b, c] = i.to_be_bytes();
     [a, b, c]
 }
+
+pub fn u16_to_word(i: u16) -> Word {
+    let [b, c] = i.to_be_bytes();
+    [0, b, c]
+}

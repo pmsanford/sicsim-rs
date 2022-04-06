@@ -207,7 +207,7 @@ fn main() -> Result<()> {
     OPCODES.set(build_opcodes()).unwrap();
     LINE_REGEX.set(Regex::new(LINE_REGEX_PATTERN)?).unwrap();
 
-    let file = File::open("example.asm")?;
+    let file = File::open("test.sic")?;
 
     let mut cur_loc = 0;
     let mut lines = vec![];
@@ -354,7 +354,10 @@ fn main() -> Result<()> {
     }
 
     records.push(Record::End {
-        first_instruction: base,
+        first_instruction: *labels
+            .get(end.argument.as_ref().expect("End argument"))
+            .unwrap()
+            + base,
     });
 
     for record in records {

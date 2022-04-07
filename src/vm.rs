@@ -1,22 +1,19 @@
+use crate::device::Device;
+use crate::load::{copy_to_memory, load_program, Program};
 use crate::op::{Op, OpCode};
-use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
+use crate::word::{u16_to_word, u32_to_word, u8_to_word, Word, WordExt};
 use std::{collections::HashMap, fmt::Debug};
-
-trait Device {
-    fn test(&mut self) -> bool;
-    fn read(&mut self) -> u8;
-    fn write(&mut self, data: u8);
-}
 
 #[allow(non_snake_case)]
 pub struct Vm {
     pub memory: [u8; 1 << 15],
-    A: Word,      // 0
-    X: Word,      // 1
-    L: Word,      // 2
+    pub A: Word,  // 0
+    pub X: Word,  // 1
+    pub L: Word,  // 2
     pub PC: Word, // 8
-    SW: Word,     // 9
+    pub SW: Word, // 9
     devices: HashMap<Word, Box<dyn Device>>,
+    loaded_programs: HashMap<String, Program>,
 }
 
 impl Debug for Vm {
@@ -41,7 +38,32 @@ impl Vm {
             PC: [0; 3],
             SW: [0; 3],
             devices: HashMap::new(),
+            loaded_programs: HashMap::new(),
         }
+    }
+
+    pub fn with_program(program_text: &str) -> Self {
+        let mut vm = Vm::empty();
+        let program = load_program(program_text);
+        copy_to_memory(&mut vm.memory, &program);
+        vm.set_pc(program.end.first_address);
+        vm
+    }
+
+    pub fn load_program(&mut self, program_text: &str) {
+        // TODO: Check overlapping memory ranges
+        let program = load_program(program_text);
+        copy_to_memory(&mut self.memory, &program);
+        self.loaded_programs
+            .insert(program.header.name.clone(), program);
+    }
+
+    pub fn add_device(&mut self, device: Box<dyn Device>, address: u8) -> Option<Box<dyn Device>> {
+        self.devices.insert(u8_to_word(address), device)
+    }
+
+    pub fn remove_device(&mut self, address: u8) -> Option<Box<dyn Device>> {
+        self.devices.remove(&u8_to_word(address))
     }
 
     pub fn set_pc(&mut self, address: u16) {
@@ -99,6 +121,24 @@ impl Vm {
             std::cmp::Ordering::Less => self.SW[2] = (self.SW[2] & 0xFC) | 0b0001,
             std::cmp::Ordering::Equal => self.SW[2] = (self.SW[2] & 0xFC) | 0b0000,
             std::cmp::Ordering::Greater => self.SW[2] = (self.SW[2] & 0xFC) | 0b0010,
+        }
+    }
+
+    pub fn run_until(&mut self, max_cycles: u64) -> StopReason {
+        let mut pc: Option<Word> = None;
+        let mut cycles = 0;
+        loop {
+            self.step();
+            cycles += 1;
+            if let Some(prev) = pc {
+                if prev == self.PC {
+                    break StopReason::Halted;
+                }
+            }
+            if cycles >= max_cycles {
+                break StopReason::CycleLimit;
+            }
+            pc = Some(self.PC);
         }
     }
 
@@ -232,6 +272,12 @@ impl Vm {
             }
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum StopReason {
+    Halted,
+    CycleLimit,
 }
 
 #[cfg(test)]

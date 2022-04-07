@@ -40,3 +40,7 @@ pub fn u16_to_word(i: u16) -> Word {
     let [b, c] = i.to_be_bytes();
     [0, b, c]
 }
+
+pub fn u8_to_word(i: u8) -> Word {
+    [0, 0, i]
+}

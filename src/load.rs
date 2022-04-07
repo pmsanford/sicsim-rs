@@ -1,14 +1,14 @@
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
 };
 
 use crate::vm::Vm;
 
-struct Header {
-    name: String,
-    start_address: u16,
-    length: u16,
+pub struct Header {
+    pub name: String,
+    pub start_address: u16,
+    pub length: u16,
 }
 
 impl Header {
@@ -26,9 +26,9 @@ impl Header {
     }
 }
 
-struct Text {
-    start_address: u16,
-    data: Vec<u8>,
+pub struct Text {
+    pub start_address: u16,
+    pub data: Vec<u8>,
 }
 
 impl Text {
@@ -52,8 +52,8 @@ impl Text {
     }
 }
 
-struct End {
-    first_address: u16,
+pub struct End {
+    pub first_address: u16,
 }
 
 impl End {
@@ -67,25 +67,51 @@ impl End {
     }
 }
 
-pub fn load_program(path: &str) -> Vm {
-    let file = BufReader::new(File::open(path).unwrap());
-    let lines = file.lines().collect::<Result<Vec<_>, _>>().unwrap();
-    let _header = Header::from_record(&lines[0]);
-    let data = lines[1..lines.len() - 1]
+pub struct Program {
+    pub header: Header,
+    pub text: Vec<Text>,
+    pub end: End,
+}
+
+pub fn load_program(program_text: &str) -> Program {
+    let lines = program_text
+        .split('\n')
+        .filter(|l| l.trim().len() != 0)
+        .collect::<Vec<_>>();
+    let header = Header::from_record(&lines[0]);
+    let text = lines[1..lines.len() - 1]
         .iter()
         .map(|line| Text::from_record(&line))
         .collect::<Vec<_>>();
     let end = End::from_record(&lines[lines.len() - 1]);
 
-    let mut vm = Vm::empty();
+    Program { header, text, end }
+}
 
-    for datum in data {
+pub fn load_program_from(path: &str) -> Program {
+    let mut file = File::open(path).unwrap();
+    let mut content = String::new();
+    file.read_to_string(&mut content).unwrap();
+    load_program(&content)
+}
+
+// TODO: Fallible
+pub fn copy_to_memory(memory: &mut [u8], program: &Program) {
+    for datum in &program.text {
         for (i, byte) in datum.data.iter().enumerate() {
-            vm.memory[datum.start_address as usize + i] = *byte;
+            memory[datum.start_address as usize + i] = *byte;
         }
     }
+}
 
-    vm.set_pc(end.first_address);
+pub fn init_with_program(path: &str) -> Vm {
+    let mut vm = Vm::empty();
+
+    let program = load_program(path);
+
+    copy_to_memory(&mut vm.memory, &program);
+
+    vm.set_pc(program.end.first_address);
 
     vm
 }

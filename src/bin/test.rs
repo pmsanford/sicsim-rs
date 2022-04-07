@@ -1,32 +1,13 @@
-use libsic::{load_program, WordExt};
+use libsic::{vm::Vm, WordExt};
 
 fn main() {
-    let mut vm = load_program("programs/test.ebj");
+    let mut vm = Vm::with_program(include_str!("../../programs/add.ebj"));
 
-    while vm.PC.as_u32() != 4096 {
+    let mut prev = 0;
+    while vm.PC.as_u32() != prev {
         vm.step();
+        prev = vm.PC.as_u32();
     }
 
-    /*
-    vm.step();
-    vm.step();
-    vm.step();
-
-    vm.step();
-    vm.step();
-    vm.step();
-
-    vm.step();
-    vm.step();
-    vm.step();
-
-    vm.step();
-    vm.step();
-    vm.step();
-
-    vm.step();
-    vm.step();
-    vm.step();
-    */
     println!("{:#?}", vm);
 }

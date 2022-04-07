@@ -12,7 +12,7 @@ pub struct Vm {
     pub L: Word,  // 2
     pub PC: Word, // 8
     pub SW: Word, // 9
-    devices: HashMap<Word, Box<dyn Device>>,
+    devices: HashMap<u8, Box<dyn Device>>,
     loaded_programs: HashMap<String, Program>,
 }
 
@@ -59,32 +59,32 @@ impl Vm {
     }
 
     pub fn add_device(&mut self, device: Box<dyn Device>, address: u8) -> Option<Box<dyn Device>> {
-        self.devices.insert(u8_to_word(address), device)
+        self.devices.insert(address, device)
     }
 
     pub fn remove_device(&mut self, address: u8) -> Option<Box<dyn Device>> {
-        self.devices.remove(&u8_to_word(address))
+        self.devices.remove(&address)
     }
 
     pub fn set_pc(&mut self, address: u16) {
         self.PC = u32_to_word(address as u32);
     }
 
-    fn test_device(&mut self, device_id: Word) -> bool {
+    fn test_device(&mut self, device_id: u8) -> bool {
         self.devices
             .get_mut(&device_id)
             .map(|device| device.test())
             .unwrap_or(false)
     }
 
-    fn read_device(&mut self, device_id: Word) -> u8 {
+    fn read_device(&mut self, device_id: u8) -> u8 {
         self.devices
             .get_mut(&device_id)
             .map(|device| device.read())
             .unwrap_or(0)
     }
 
-    fn write_device(&mut self, device_id: Word, data: u8) {
+    fn write_device(&mut self, device_id: u8, data: u8) {
         if let Some(device) = self.devices.get_mut(&device_id) {
             device.write(data);
         }
@@ -255,11 +255,11 @@ impl Vm {
 
             // Devices
             OpCode::RD => {
-                let device_id = self.word_at(op.address, op.indexed);
+                let device_id = self.memory[op.address as usize];
                 self.A[2] = self.read_device(device_id);
             }
             OpCode::TD => {
-                let device_id = self.word_at(op.address, op.indexed);
+                let device_id = self.memory[op.address as usize];
                 if self.test_device(device_id) {
                     self.SW[2] = (self.SW[2] & 0xFC) | 0b0001;
                 } else {
@@ -267,7 +267,7 @@ impl Vm {
                 }
             }
             OpCode::WD => {
-                let device_id = self.word_at(op.address, op.indexed);
+                let device_id = self.memory[op.address as usize];
                 self.write_device(device_id, self.A[2]);
             }
         }
@@ -704,7 +704,7 @@ mod test {
         let mut vm = setup_op(OpCode::TD, 99);
         let write_buf = Rc::new(RefCell::new(Vec::new()));
         vm.devices.insert(
-            u32_to_word(1),
+            1,
             Box::new(TestDevice {
                 tested: false,
                 content: String::from("Hello"),
@@ -712,7 +712,7 @@ mod test {
                 write_buf: Rc::clone(&write_buf),
             }),
         );
-        set_int(&mut vm, 99, 1);
+        vm.memory[99] = 1;
         set_int(&mut vm, 108, 5);
         set_int(&mut vm, 206, 1234);
         ni_op(&mut vm, 3, OpCode::JLT, 9);

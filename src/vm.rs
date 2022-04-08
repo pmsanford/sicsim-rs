@@ -1,5 +1,5 @@
 use crate::device::Device;
-use crate::load::{copy_to_memory, load_program, Program};
+use crate::load::{copy_to_memory, load_program};
 use crate::op::{Op, OpCode};
 use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
 use std::cmp::Ordering;
@@ -14,7 +14,6 @@ pub struct Vm {
     pub PC: Word, // 8
     pub SW: Word, // 9
     devices: HashMap<u8, Box<dyn Device>>,
-    loaded_programs: HashMap<String, Program>,
 }
 
 impl Debug for Vm {
@@ -65,7 +64,6 @@ impl Vm {
             PC: [0; 3],
             SW: [0; 3],
             devices: HashMap::new(),
-            loaded_programs: HashMap::new(),
         }
     }
 
@@ -81,8 +79,6 @@ impl Vm {
         // TODO: Check overlapping memory ranges
         let program = load_program(program_text);
         copy_to_memory(&mut self.memory, &program);
-        self.loaded_programs
-            .insert(program.header.name.clone(), program);
     }
 
     pub fn add_device(&mut self, device: Box<dyn Device>, address: u8) -> Option<Box<dyn Device>> {
@@ -310,28 +306,6 @@ mod test {
     use std::{cell::RefCell, ops::Deref, rc::Rc};
 
     use super::*;
-
-    #[test]
-    fn word_ext() {
-        let u: u32 = [0xFF, 0xFF, 0xFF].as_u32();
-        assert_eq!(u, 0x00FFFFFF);
-        let u: u32 = [0xAB, 0xCD, 0xEF].as_u32();
-        assert_eq!(u, 0x00ABCDEF);
-        let u: u32 = u32_to_word(0x00CAFEBA).as_u32();
-        assert_eq!(u, 0x00CAFEBA);
-        let u: usize = u32_to_word(0x00DEDBEF).as_usize();
-        assert_eq!(u, 0x00DEDBEF);
-        let i: i32 = u32_to_word((-5 as i32) as u32).as_i32();
-        assert_eq!(i, -5);
-        let i: i32 = u32_to_word(350).as_i32();
-        assert_eq!(i, 350);
-        let w: Word = u32_to_word(0xCAFEBA);
-        assert_eq!(w, [0xCA, 0xFE, 0xBA]);
-        let w: Word = u32_to_word((-1 as i32) as u32);
-        assert_eq!(w, [0xFF, 0xFF, 0xFF]);
-        let w: Word = u32_to_word((-2 as i32) as u32);
-        assert_eq!(w, [0xFF, 0xFF, 0xFE]);
-    }
 
     fn set_int(vm: &mut Vm, address: usize, v: u32) {
         let [_, a, b, c] = v.to_be_bytes();

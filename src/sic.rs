@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};
 
 #[allow(non_snake_case)]
-pub struct Vm {
+pub struct SicVm {
     pub memory: [u8; 1 << 15],
     pub A: Word,  // 0
     pub X: Word,  // 1
@@ -15,7 +15,7 @@ pub struct Vm {
     devices: HashMap<u8, Box<dyn Device>>,
 }
 
-impl Debug for Vm {
+impl Debug for SicVm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Vm")
             .field("A", &self.A)
@@ -53,7 +53,7 @@ fn check_cc(sw: &Word) -> Ordering {
     }
 }
 
-impl Vm {
+impl SicVm {
     pub fn empty() -> Self {
         Self {
             memory: [0; 1 << 15],
@@ -292,21 +292,21 @@ mod test {
 
     use super::*;
 
-    fn set_int(vm: &mut Vm, address: usize, v: u32) {
+    fn set_int(vm: &mut SicVm, address: usize, v: u32) {
         let [_, a, b, c] = v.to_be_bytes();
         vm.memory[address] = a;
         vm.memory[address + 1] = b;
         vm.memory[address + 2] = c;
     }
 
-    fn set_op(vm: &mut Vm, address: usize, op: Op) {
+    fn set_op(vm: &mut SicVm, address: usize, op: Op) {
         let word: Word = op.into();
         vm.memory[address] = word[0];
         vm.memory[address + 1] = word[1];
         vm.memory[address + 2] = word[2];
     }
 
-    fn ni_op(vm: &mut Vm, address: usize, opcode: OpCode, target: u16) {
+    fn ni_op(vm: &mut SicVm, address: usize, opcode: OpCode, target: u16) {
         set_op(
             vm,
             address,
@@ -319,7 +319,7 @@ mod test {
     }
 
     #[allow(dead_code)]
-    fn print_word(vm: &Vm, address: usize) {
+    fn print_word(vm: &SicVm, address: usize) {
         println!(
             "word at {}: 0x{:X} 0x{:X} 0x{:X}",
             address,
@@ -329,8 +329,8 @@ mod test {
         );
     }
 
-    fn setup_op(opcode: OpCode, address: u16) -> Vm {
-        let mut vm = Vm::empty();
+    fn setup_op(opcode: OpCode, address: u16) -> SicVm {
+        let mut vm = SicVm::empty();
         set_op(
             &mut vm,
             0,
@@ -354,7 +354,7 @@ mod test {
         assert_eq!(a_val, 0xAB);
         assert_eq!(vm.PC[2], 3);
 
-        let mut vm = Vm::empty();
+        let mut vm = SicVm::empty();
         vm.X = u32_to_word(3);
         set_op(
             &mut vm,
@@ -579,7 +579,7 @@ mod test {
 
     #[test]
     fn index() {
-        let mut vm = Vm::empty();
+        let mut vm = SicVm::empty();
         set_op(
             &mut vm,
             0,
@@ -736,9 +736,9 @@ mod test {
     #[test]
     fn unrecognized() {
         // TODO: Treat unrecognized opcodes as noop for now
-        let mut vm = Vm::empty();
+        let mut vm = SicVm::empty();
         vm.memory[0] = 0xFF;
-        let mut expected = Vm::empty();
+        let mut expected = SicVm::empty();
         expected.memory = vm.memory.clone();
 
         vm.step();

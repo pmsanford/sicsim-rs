@@ -1,7 +1,7 @@
 use libsic::{
     device::{FileInputDevice, MemoryOutputDevice},
-    load::{load_program_to, vm_with_program},
-    sic::StopReason,
+    sic::load::{load_program_to, vm_with_program},
+    sic::vm::StopReason,
     WordExt,
 };
 

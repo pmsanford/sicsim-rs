@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use crate::sic::SicVm;
+use super::vm::SicVm;
 
 pub struct Header {
     pub name: String,

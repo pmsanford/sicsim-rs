@@ -1,5 +1,5 @@
+use super::op::{Op, OpCode};
 use crate::device::Device;
-use crate::op::{Op, OpCode};
 use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};

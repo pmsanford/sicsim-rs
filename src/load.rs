@@ -112,3 +112,16 @@ pub fn init_with_program(path: &str) -> Vm {
 
     vm
 }
+
+pub fn vm_with_program(program_text: &str) -> Vm {
+    let mut vm = Vm::empty();
+    let program = load_program(program_text);
+    copy_to_memory(&mut vm.memory, &program);
+    vm.set_pc(program.end.first_address);
+    vm
+}
+
+pub fn load_program_to(vm: &mut Vm, program_text: &str) {
+    let program = load_program(program_text);
+    copy_to_memory(&mut vm.memory, &program);
+}

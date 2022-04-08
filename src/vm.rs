@@ -1,5 +1,4 @@
 use crate::device::Device;
-use crate::load::{copy_to_memory, load_program};
 use crate::op::{Op, OpCode};
 use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
 use std::cmp::Ordering;
@@ -65,20 +64,6 @@ impl Vm {
             SW: [0; 3],
             devices: HashMap::new(),
         }
-    }
-
-    pub fn with_program(program_text: &str) -> Self {
-        let mut vm = Vm::empty();
-        let program = load_program(program_text);
-        copy_to_memory(&mut vm.memory, &program);
-        vm.set_pc(program.end.first_address);
-        vm
-    }
-
-    pub fn load_program(&mut self, program_text: &str) {
-        // TODO: Check overlapping memory ranges
-        let program = load_program(program_text);
-        copy_to_memory(&mut self.memory, &program);
     }
 
     pub fn add_device(&mut self, device: Box<dyn Device>, address: u8) -> Option<Box<dyn Device>> {

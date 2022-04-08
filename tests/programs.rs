@@ -1,13 +1,14 @@
 use libsic::{
     device::{FileInputDevice, MemoryOutputDevice},
-    vm::{StopReason, Vm},
+    load::{load_program_to, vm_with_program},
+    vm::StopReason,
     WordExt,
 };
 
 #[test]
 fn test_simple_add() {
     let test_program = include_str!("../programs/add.ebj");
-    let mut vm = Vm::with_program(test_program);
+    let mut vm = vm_with_program(test_program);
     assert_eq!(vm.A.as_u32(), 0);
     assert_eq!(vm.run_until(100), StopReason::Halted);
     assert_eq!(vm.A.as_u32(), 5);
@@ -17,8 +18,8 @@ fn test_simple_add() {
 fn test_devices() {
     let test_program = include_str!("../programs/copy.ebj");
     let test_harness = include_str!("../programs/test_harness.ebj");
-    let mut vm = Vm::with_program(test_harness);
-    vm.load_program(test_program);
+    let mut vm = vm_with_program(test_harness);
+    load_program_to(&mut vm, test_program);
     let input_device = FileInputDevice::new("tests/input.txt").unwrap();
     let contents = include_bytes!("input.txt");
     let mut expected = contents.to_vec();

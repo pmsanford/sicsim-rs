@@ -5,10 +5,18 @@ use std::{
     sync::Arc,
 };
 
+use thiserror::Error;
+
 pub trait Device {
     fn test(&mut self) -> bool;
     fn read(&mut self) -> u8;
     fn write(&mut self, data: u8);
+}
+
+#[derive(Error, Debug)]
+pub enum FileDeviceError {
+    #[error("Error opening file")]
+    OpenError,
 }
 
 pub struct FileInputDevice {
@@ -16,10 +24,10 @@ pub struct FileInputDevice {
 }
 
 impl FileInputDevice {
-    pub fn new(path: &str) -> Self {
-        Self {
-            file: File::open(path).unwrap(),
-        }
+    pub fn new(path: &str) -> Result<Self, FileDeviceError> {
+        Ok(Self {
+            file: File::open(path).map_err(|_| FileDeviceError::OpenError)?,
+        })
     }
 }
 
@@ -33,7 +41,7 @@ impl Device for FileInputDevice {
         match self.file.read_exact(&mut outbuf) {
             Err(e) => match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => return 0,
-                e => Err(e).unwrap(),
+                _ => return 0, // TODO: How to handle read errors?
             },
             _ => (),
         };
@@ -41,7 +49,7 @@ impl Device for FileInputDevice {
     }
 
     fn write(&mut self, _data: u8) {
-        unimplemented!()
+        // Do nothing - this device doesn't support writes.
     }
 }
 
@@ -50,10 +58,10 @@ pub struct FileOutputDevice {
 }
 
 impl FileOutputDevice {
-    pub fn new(path: &str) -> Self {
-        Self {
-            file: File::open(path).unwrap(),
-        }
+    pub fn new(path: &str) -> Result<Self, FileDeviceError> {
+        Ok(Self {
+            file: File::open(path).map_err(|_| FileDeviceError::OpenError)?,
+        })
     }
 }
 
@@ -63,11 +71,13 @@ impl Device for FileOutputDevice {
     }
 
     fn read(&mut self) -> u8 {
-        unimplemented!()
+        // Return end of file - this device doesn't support reads.
+        0
     }
 
     fn write(&mut self, data: u8) {
-        self.file.write(&[data]).unwrap();
+        // TODO: How to handle write errors?
+        let _ = self.file.write(&[data]);
     }
 }
 
@@ -91,7 +101,8 @@ impl Device for MemoryOutputDevice {
     }
 
     fn read(&mut self) -> u8 {
-        unimplemented!()
+        // Return end of file - this device doesn't support reading
+        0
     }
 
     fn write(&mut self, data: u8) {

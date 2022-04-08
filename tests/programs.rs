@@ -19,7 +19,7 @@ fn test_devices() {
     let test_harness = include_str!("../programs/test_harness.ebj");
     let mut vm = Vm::with_program(test_harness);
     vm.load_program(test_program);
-    let input_device = FileInputDevice::new("tests/input.txt");
+    let input_device = FileInputDevice::new("tests/input.txt").unwrap();
     let contents = include_bytes!("input.txt");
     let mut expected = contents.to_vec();
     expected.push('E' as u8);

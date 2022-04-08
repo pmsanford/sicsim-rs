@@ -1,7 +1,7 @@
 use crate::device::Device;
 use crate::load::{copy_to_memory, load_program, Program};
 use crate::op::{Op, OpCode};
-use crate::word::{u16_to_word, u32_to_word, u8_to_word, Word, WordExt};
+use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
 use std::{collections::HashMap, fmt::Debug};
 
 #[allow(non_snake_case)]

@@ -556,7 +556,7 @@ mod test {
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 33);
         vm.step();
-        assert_eq!(vm.SW[2] & 0x03, 0);
+        assert_eq!(vm.SW[CC_BYTE] & CC_MASK, CC_EQ);
         vm.step();
         assert_eq!(vm.PC.as_u32(), 33);
 
@@ -566,7 +566,7 @@ mod test {
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
         vm.step();
-        assert_eq!(vm.SW[2] & 0x03, 1);
+        assert_eq!(vm.SW[CC_BYTE] & CC_MASK, CC_LT);
         vm.step();
         assert_eq!(vm.PC.as_u32(), 6);
 
@@ -576,7 +576,7 @@ mod test {
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
         vm.step();
-        assert_eq!(vm.SW[2] & 0x03, 2);
+        assert_eq!(vm.SW[CC_BYTE] & CC_MASK, CC_GT);
         vm.step();
         assert_eq!(vm.PC.as_u32(), 6);
 
@@ -586,7 +586,7 @@ mod test {
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
         vm.step();
-        assert_eq!(vm.SW[2] & 0x03, 1);
+        assert_eq!(vm.SW[CC_BYTE] & CC_MASK, CC_LT);
         vm.step();
         assert_eq!(vm.PC.as_u32(), 34);
 
@@ -596,7 +596,7 @@ mod test {
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
         vm.step();
-        assert_eq!(vm.SW[2] & 0x03, 2);
+        assert_eq!(vm.SW[CC_BYTE] & CC_MASK, CC_GT);
         vm.step();
         assert_eq!(vm.PC.as_u32(), 32);
     }

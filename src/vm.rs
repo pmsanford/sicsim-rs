@@ -143,132 +143,134 @@ impl Vm {
     }
 
     pub fn step(&mut self) {
-        let op = Op::from_word(self.word_at(self.pc_address(), false)).unwrap();
+        let op = Op::from_word(self.word_at(self.pc_address(), false));
         self.PC = u32_to_word(self.PC.as_u32() + 3);
-        match op.opcode {
-            // Load/store
-            OpCode::LDA => {
-                self.A = self.word_at(op.address, op.indexed);
-            }
-            OpCode::STA => {
-                self.set_at(op.address, op.indexed, self.A);
-            }
-            OpCode::LDCH => {
-                let address = self.calc_addr(op.address, op.indexed);
-                self.A[2] = self.memory[address];
-            }
-            OpCode::STCH => {
-                let address = self.calc_addr(op.address, op.indexed);
-                self.memory[address] = self.A[2];
-            }
-            OpCode::LDL => {
-                self.L = self.word_at(op.address, op.indexed);
-            }
-            OpCode::STL => {
-                self.set_at(op.address, op.indexed, self.L);
-            }
-            OpCode::LDX => {
-                self.X = self.word_at(op.address, op.indexed);
-            }
-            OpCode::STX => {
-                self.set_at(op.address, op.indexed, self.X);
-            }
-            OpCode::STSW => {
-                self.set_at(op.address, op.indexed, self.SW);
-            }
+        if let Some(op) = op {
+            match op.opcode {
+                // Load/store
+                OpCode::LDA => {
+                    self.A = self.word_at(op.address, op.indexed);
+                }
+                OpCode::STA => {
+                    self.set_at(op.address, op.indexed, self.A);
+                }
+                OpCode::LDCH => {
+                    let address = self.calc_addr(op.address, op.indexed);
+                    self.A[2] = self.memory[address];
+                }
+                OpCode::STCH => {
+                    let address = self.calc_addr(op.address, op.indexed);
+                    self.memory[address] = self.A[2];
+                }
+                OpCode::LDL => {
+                    self.L = self.word_at(op.address, op.indexed);
+                }
+                OpCode::STL => {
+                    self.set_at(op.address, op.indexed, self.L);
+                }
+                OpCode::LDX => {
+                    self.X = self.word_at(op.address, op.indexed);
+                }
+                OpCode::STX => {
+                    self.set_at(op.address, op.indexed, self.X);
+                }
+                OpCode::STSW => {
+                    self.set_at(op.address, op.indexed, self.SW);
+                }
 
-            // Bitwise
-            OpCode::OR => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = [
-                    self.A[0] | memory[0],
-                    self.A[1] | memory[1],
-                    self.A[2] | memory[2],
-                ];
-            }
-            OpCode::AND => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = [
-                    self.A[0] & memory[0],
-                    self.A[1] & memory[1],
-                    self.A[2] & memory[2],
-                ];
-            }
+                // Bitwise
+                OpCode::OR => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = [
+                        self.A[0] | memory[0],
+                        self.A[1] | memory[1],
+                        self.A[2] | memory[2],
+                    ];
+                }
+                OpCode::AND => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = [
+                        self.A[0] & memory[0],
+                        self.A[1] & memory[1],
+                        self.A[2] & memory[2],
+                    ];
+                }
 
-            // Math
-            OpCode::ADD => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
-            }
-            OpCode::SUB => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
-            }
-            OpCode::MUL => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
-            }
-            OpCode::DIV => {
-                let memory = self.word_at(op.address, op.indexed);
-                self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
-            }
+                // Math
+                OpCode::ADD => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
+                }
+                OpCode::SUB => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
+                }
+                OpCode::MUL => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
+                }
+                OpCode::DIV => {
+                    let memory = self.word_at(op.address, op.indexed);
+                    self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
+                }
 
-            // Comp
-            OpCode::COMP => {
-                self.comp(self.A, op.address, op.indexed);
-            }
+                // Comp
+                OpCode::COMP => {
+                    self.comp(self.A, op.address, op.indexed);
+                }
 
-            // Jumps
-            OpCode::J => {
-                self.PC = u16_to_word(op.address);
-            }
-            OpCode::JLT => {
-                if self.SW[2] & 0b0011 == 0b0001 {
+                // Jumps
+                OpCode::J => {
                     self.PC = u16_to_word(op.address);
                 }
-            }
-            OpCode::JEQ => {
-                if self.SW[2] & 0b0011 == 0b0000 {
+                OpCode::JLT => {
+                    if self.SW[2] & 0b0011 == 0b0001 {
+                        self.PC = u16_to_word(op.address);
+                    }
+                }
+                OpCode::JEQ => {
+                    if self.SW[2] & 0b0011 == 0b0000 {
+                        self.PC = u16_to_word(op.address);
+                    }
+                }
+                OpCode::JGT => {
+                    if self.SW[2] & 0b0011 == 0b0010 {
+                        self.PC = u16_to_word(op.address);
+                    }
+                }
+
+                // Subroutines
+                OpCode::JSUB => {
+                    self.L = self.PC;
                     self.PC = u16_to_word(op.address);
                 }
-            }
-            OpCode::JGT => {
-                if self.SW[2] & 0b0011 == 0b0010 {
-                    self.PC = u16_to_word(op.address);
+                OpCode::RSUB => {
+                    self.PC = self.L;
                 }
-            }
 
-            // Subroutines
-            OpCode::JSUB => {
-                self.L = self.PC;
-                self.PC = u16_to_word(op.address);
-            }
-            OpCode::RSUB => {
-                self.PC = self.L;
-            }
-
-            // Index
-            OpCode::TIX => {
-                self.X = u32_to_word(self.X.as_u32() + 1);
-                self.comp(self.X, op.address, op.indexed);
-            }
-
-            // Devices
-            OpCode::RD => {
-                let device_id = self.memory[op.address as usize];
-                self.A[2] = self.read_device(device_id);
-            }
-            OpCode::TD => {
-                let device_id = self.memory[op.address as usize];
-                if self.test_device(device_id) {
-                    self.SW[2] = (self.SW[2] & 0xFC) | 0b0001;
-                } else {
-                    self.SW[2] = (self.SW[2] & 0xFC) | 0b0000;
+                // Index
+                OpCode::TIX => {
+                    self.X = u32_to_word(self.X.as_u32() + 1);
+                    self.comp(self.X, op.address, op.indexed);
                 }
-            }
-            OpCode::WD => {
-                let device_id = self.memory[op.address as usize];
-                self.write_device(device_id, self.A[2]);
+
+                // Devices
+                OpCode::RD => {
+                    let device_id = self.memory[op.address as usize];
+                    self.A[2] = self.read_device(device_id);
+                }
+                OpCode::TD => {
+                    let device_id = self.memory[op.address as usize];
+                    if self.test_device(device_id) {
+                        self.SW[2] = (self.SW[2] & 0xFC) | 0b0001;
+                    } else {
+                        self.SW[2] = (self.SW[2] & 0xFC) | 0b0000;
+                    }
+                }
+                OpCode::WD => {
+                    let device_id = self.memory[op.address as usize];
+                    self.write_device(device_id, self.A[2]);
+                }
             }
         }
     }
@@ -747,5 +749,24 @@ mod test {
         let buf = write_buf.deref().borrow();
 
         assert_eq!(*buf, vec![72, 101, 108, 108, 111]);
+    }
+
+    #[test]
+    fn unrecognized() {
+        // TODO: Treat unrecognized opcodes as noop for now
+        let mut vm = Vm::empty();
+        vm.memory[0] = 0xFF;
+        let mut expected = Vm::empty();
+        expected.memory = vm.memory.clone();
+
+        vm.step();
+
+        assert_eq!(vm.PC.as_u32(), 3);
+
+        assert_eq!(vm.A, expected.A);
+        assert_eq!(vm.X, expected.X);
+        assert_eq!(vm.L, expected.L);
+        assert_eq!(vm.SW, expected.SW);
+        assert_eq!(vm.memory, expected.memory);
     }
 }

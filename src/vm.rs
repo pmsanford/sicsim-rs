@@ -33,7 +33,7 @@ const CC_MASK: u8 = 0x03;
 const CC_LT: u8 = 0x01;
 const CC_GT: u8 = 0x02;
 const CC_EQ: u8 = 0x00;
-const CC_BYTE: usize = 2;
+const CC_BYTE: usize = 0;
 
 fn set_cc(sw: &mut Word, val: Ordering) {
     sw[CC_BYTE] = (sw[CC_BYTE] & (CC_MASK ^ 0xFF))

@@ -2,6 +2,7 @@ use crate::device::Device;
 use crate::load::{copy_to_memory, load_program, Program};
 use crate::op::{Op, OpCode};
 use crate::word::{u16_to_word, u32_to_word, Word, WordExt};
+use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};
 
 #[allow(non_snake_case)]
@@ -25,6 +26,32 @@ impl Debug for Vm {
             .field("PC", &self.PC)
             .field("SW", &self.SW)
             .finish()
+    }
+}
+
+const CC_MASK: u8 = 0x03;
+const CC_LT: u8 = 0x01;
+const CC_GT: u8 = 0x02;
+const CC_EQ: u8 = 0x00;
+const CC_BYTE: usize = 2;
+
+fn set_cc(sw: &mut Word, val: Ordering) {
+    sw[CC_BYTE] = (sw[CC_BYTE] & (CC_MASK ^ 0xFF))
+        | match val {
+            Ordering::Less => CC_LT,
+            Ordering::Equal => CC_EQ,
+            Ordering::Greater => CC_GT,
+        };
+}
+
+fn check_cc(sw: &Word) -> Ordering {
+    let cc = sw[CC_BYTE] & CC_MASK;
+    match cc {
+        CC_LT => Ordering::Less,
+        CC_EQ => Ordering::Equal,
+        CC_GT => Ordering::Greater,
+        // All possibilities covered assuming the mask is correct
+        _ => unreachable!(),
     }
 }
 
@@ -117,11 +144,7 @@ impl Vm {
 
     fn comp(&mut self, register: Word, address: u16, indexed: bool) {
         let memory = self.word_at(address, indexed);
-        match register.cmp(&memory) {
-            std::cmp::Ordering::Less => self.SW[2] = (self.SW[2] & 0xFC) | 0b0001,
-            std::cmp::Ordering::Equal => self.SW[2] = (self.SW[2] & 0xFC) | 0b0000,
-            std::cmp::Ordering::Greater => self.SW[2] = (self.SW[2] & 0xFC) | 0b0010,
-        }
+        set_cc(&mut self.SW, register.cmp(&memory));
     }
 
     pub fn run_until(&mut self, max_cycles: u64) -> StopReason {
@@ -224,17 +247,17 @@ impl Vm {
                     self.PC = u16_to_word(op.address);
                 }
                 OpCode::JLT => {
-                    if self.SW[2] & 0b0011 == 0b0001 {
+                    if check_cc(&self.SW) == Ordering::Less {
                         self.PC = u16_to_word(op.address);
                     }
                 }
                 OpCode::JEQ => {
-                    if self.SW[2] & 0b0011 == 0b0000 {
+                    if check_cc(&self.SW) == Ordering::Equal {
                         self.PC = u16_to_word(op.address);
                     }
                 }
                 OpCode::JGT => {
-                    if self.SW[2] & 0b0011 == 0b0010 {
+                    if check_cc(&self.SW) == Ordering::Greater {
                         self.PC = u16_to_word(op.address);
                     }
                 }
@@ -262,9 +285,9 @@ impl Vm {
                 OpCode::TD => {
                     let device_id = self.memory[op.address as usize];
                     if self.test_device(device_id) {
-                        self.SW[2] = (self.SW[2] & 0xFC) | 0b0001;
+                        set_cc(&mut self.SW, Ordering::Less);
                     } else {
-                        self.SW[2] = (self.SW[2] & 0xFC) | 0b0000;
+                        set_cc(&mut self.SW, Ordering::Equal);
                     }
                 }
                 OpCode::WD => {

@@ -51,13 +51,15 @@ impl Op {
     }
 }
 
+// Can't implement anything on Word
+#[allow(clippy::from_over_into)]
 impl Into<Word> for Op {
     fn into(self) -> Word {
         let opcode = self.opcode as u8;
         let [msb, lsb] = self.address.to_be_bytes();
         let mut msb = msb & 0x7F;
         if self.indexed {
-            msb = msb | 0x80;
+            msb |= 0x80;
         }
 
         [opcode, msb, lsb]

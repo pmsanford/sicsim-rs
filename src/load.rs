@@ -73,14 +73,14 @@ pub struct Program {
 pub fn load_program(program_text: &str) -> Program {
     let lines = program_text
         .split('\n')
-        .filter(|l| l.trim().len() != 0)
+        .filter(|l| !l.trim().is_empty())
         .collect::<Vec<_>>();
-    let header = Header::from_record(&lines[0]);
+    let header = Header::from_record(lines[0]);
     let text = lines[1..lines.len() - 1]
         .iter()
-        .map(|line| Text::from_record(&line))
+        .map(|line| Text::from_record(line))
         .collect::<Vec<_>>();
-    let end = End::from_record(&lines[lines.len() - 1]);
+    let end = End::from_record(lines[lines.len() - 1]);
 
     Program { header, text, end }
 }

@@ -38,12 +38,11 @@ impl Device for FileInputDevice {
 
     fn read(&mut self) -> u8 {
         let mut outbuf = [0];
-        match self.file.read_exact(&mut outbuf) {
-            Err(e) => match e.kind() {
+        if let Err(e) = self.file.read_exact(&mut outbuf) {
+            match e.kind() {
                 std::io::ErrorKind::UnexpectedEof => return 0,
                 _ => return 0, // TODO: How to handle read errors?
-            },
-            _ => (),
+            }
         };
         outbuf[0]
     }

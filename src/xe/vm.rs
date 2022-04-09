@@ -1,11 +1,11 @@
-use super::op::{AddressFlags, Op, VariableOps};
+use super::op::{AddressFlags, OneByteOps, Op, VariableOps};
 use crate::device::Device;
-use crate::word::{u32_to_word, DWord, Word, WordExt};
+use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};
 
 #[allow(non_snake_case)]
-pub struct SicVm {
+pub struct SicXeVm {
     pub memory: Vec<u8>,
     pub A: Word,  // 0
     pub X: Word,  // 1
@@ -19,7 +19,7 @@ pub struct SicVm {
     devices: HashMap<u8, Box<dyn Device>>,
 }
 
-impl Debug for SicVm {
+impl Debug for SicXeVm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Vm")
             .field("A", &self.A)
@@ -57,7 +57,7 @@ fn check_cc(sw: &Word) -> Ordering {
     }
 }
 
-impl SicVm {
+impl SicXeVm {
     pub fn empty() -> Self {
         Self {
             memory: vec![0; 1 << 20],
@@ -155,6 +155,11 @@ impl SicVm {
 
     fn comp(&mut self, register: Word, address: u32, flags: &AddressFlags) {
         let memory = self.word_at(address, flags);
+        set_cc(&mut self.SW, register.cmp(&memory));
+    }
+
+    fn compf(&mut self, register: DWord, address: u32, flags: &AddressFlags) {
+        let memory = self.dword_at(address, flags);
         set_cc(&mut self.SW, register.cmp(&memory));
     }
 
@@ -271,23 +276,41 @@ impl SicVm {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
                     }
-                    VariableOps::ADDF => {}
+                    VariableOps::ADDF => {
+                        let memory = self.dword_at(op.address, &op.address_flags);
+                        self.F = f64_to_dword(self.F.as_f64() + memory.as_f64());
+                    }
                     VariableOps::SUB => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
+                    }
+                    VariableOps::SUBF => {
+                        let memory = self.dword_at(op.address, &op.address_flags);
+                        self.F = f64_to_dword(self.F.as_f64() - memory.as_f64());
                     }
                     VariableOps::MUL => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
                     }
+                    VariableOps::MULF => {
+                        let memory = self.dword_at(op.address, &op.address_flags);
+                        self.F = f64_to_dword(self.F.as_f64() * memory.as_f64());
+                    }
                     VariableOps::DIV => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
+                    }
+                    VariableOps::DIVF => {
+                        let memory = self.dword_at(op.address, &op.address_flags);
+                        self.F = f64_to_dword(self.F.as_f64() / memory.as_f64());
                     }
 
                     // Comp
                     VariableOps::COMP => {
                         self.comp(self.A, op.address, &op.address_flags);
+                    }
+                    VariableOps::COMPF => {
+                        self.compf(self.F, op.address, &op.address_flags);
                     }
 
                     // Jumps
@@ -342,9 +365,36 @@ impl SicVm {
                         let device_id = self.memory[op.address as usize];
                         self.write_device(device_id, self.A[2]);
                     }
-                    _ => {}
+
+                    // System
+                    VariableOps::SSK => {
+                        //TODO: SSK?
+                        unimplemented!()
+                    }
+                    VariableOps::LPS => {
+                        //TODO: LPS?
+                        unimplemented!()
+                    }
+                    VariableOps::STI => {
+                        //TODO: STI
+                        unimplemented!()
+                    }
                 }
             }
+            Some(Op::OneByte(opcode)) => match opcode {
+                OneByteOps::FIX => {
+                    let float = self.F.as_f64();
+                    self.A = i32_to_word(float as i32);
+                }
+                OneByteOps::FLOAT => {
+                    let int = self.A.as_i32();
+                    self.F = f64_to_dword(int as f64);
+                }
+                OneByteOps::HIO => todo!(),
+                OneByteOps::NORM => todo!(),
+                OneByteOps::SIO => todo!(),
+                OneByteOps::TIO => todo!(),
+            },
             _ => {} //TODO: One- and Two-byte
         }
     }
@@ -360,25 +410,35 @@ pub enum StopReason {
 mod test {
     use std::{cell::RefCell, ops::Deref, rc::Rc};
 
-    use crate::xe::op::{AddressMode, Variable};
+    use crate::xe::op::{AddressMode, Register, TwoByte, TwoByteOps, Variable};
 
     use super::*;
 
-    fn set_int(vm: &mut SicVm, address: usize, v: u32) {
+    fn set_int(vm: &mut SicXeVm, address: usize, v: u32) {
         let [_, a, b, c] = v.to_be_bytes();
         vm.memory[address] = a;
         vm.memory[address + 1] = b;
         vm.memory[address + 2] = c;
     }
 
-    fn set_op(vm: &mut SicVm, address: usize, op: Op) {
+    fn set_float(vm: &mut SicXeVm, address: usize, v: f64) {
+        let [a, b, c, d, e, f] = f64_to_dword(v);
+        vm.memory[address] = a;
+        vm.memory[address + 1] = b;
+        vm.memory[address + 2] = c;
+        vm.memory[address + 3] = d;
+        vm.memory[address + 4] = e;
+        vm.memory[address + 5] = f;
+    }
+
+    fn set_op(vm: &mut SicXeVm, address: usize, op: Op) {
         let word = op.to_bytes();
         vm.memory[address] = word[0];
         vm.memory[address + 1] = word[1];
         vm.memory[address + 2] = word[2];
     }
 
-    fn ni_op(vm: &mut SicVm, address: usize, opcode: VariableOps, target: u32) {
+    fn ni_op(vm: &mut SicXeVm, address: usize, opcode: VariableOps, target: u32) {
         set_op(
             vm,
             address,
@@ -397,7 +457,7 @@ mod test {
     }
 
     #[allow(dead_code)]
-    fn print_word(vm: &SicVm, address: usize) {
+    fn print_word(vm: &SicXeVm, address: usize) {
         println!(
             "word at {}: 0x{:X} 0x{:X} 0x{:X}",
             address,
@@ -407,8 +467,20 @@ mod test {
         );
     }
 
-    fn setup_op(opcode: VariableOps, address: u32) -> SicVm {
-        let mut vm = SicVm::empty();
+    fn setup_one_op(opcode: OneByteOps) -> SicXeVm {
+        let mut vm = SicXeVm::empty();
+        set_op(&mut vm, 0, Op::OneByte(opcode));
+        vm
+    }
+
+    fn setup_two_op(opcode: TwoByteOps, r1: Register, r2: Register) -> SicXeVm {
+        let mut vm = SicXeVm::empty();
+        set_op(&mut vm, 0, Op::TwoByte(TwoByte { opcode, r1, r2 }));
+        vm
+    }
+
+    fn setup_var_op(opcode: VariableOps, address: u32) -> SicXeVm {
+        let mut vm = SicXeVm::empty();
         set_op(
             &mut vm,
             0,
@@ -429,7 +501,7 @@ mod test {
 
     #[test]
     fn lda() {
-        let mut vm = setup_op(VariableOps::LDA, 3);
+        let mut vm = setup_var_op(VariableOps::LDA, 3);
         set_int(&mut vm, 3, 0xAB);
 
         vm.step();
@@ -438,7 +510,7 @@ mod test {
         assert_eq!(a_val, 0xAB);
         assert_eq!(vm.PC[2], 3);
 
-        let mut vm = SicVm::empty();
+        let mut vm = SicXeVm::empty();
         vm.X = u32_to_word(3);
         set_op(
             &mut vm,
@@ -482,7 +554,7 @@ mod test {
 
     #[test]
     fn sta() {
-        let mut vm = setup_op(VariableOps::STA, 3);
+        let mut vm = setup_var_op(VariableOps::STA, 3);
         vm.A = u32_to_word(0xAAAA);
 
         vm.step();
@@ -494,7 +566,7 @@ mod test {
 
     #[test]
     fn load_store() {
-        let mut vm = setup_op(VariableOps::LDA, 99);
+        let mut vm = setup_var_op(VariableOps::LDA, 99);
         set_op(
             &mut vm,
             3,
@@ -515,14 +587,14 @@ mod test {
 
     #[test]
     fn ch() {
-        let mut vm = setup_op(VariableOps::LDCH, 100);
+        let mut vm = setup_var_op(VariableOps::LDCH, 100);
         set_int(&mut vm, 99, 0xBE00);
 
         vm.step();
 
         let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0xBE);
-        let mut vm = setup_op(VariableOps::STCH, 100);
+        let mut vm = setup_var_op(VariableOps::STCH, 100);
         vm.A = u32_to_word(0xBA);
 
         vm.step();
@@ -533,7 +605,7 @@ mod test {
 
     #[test]
     fn bitwise() {
-        let mut vm = setup_op(VariableOps::OR, 99);
+        let mut vm = setup_var_op(VariableOps::OR, 99);
         set_int(&mut vm, 99, 0x8181);
         vm.A = u32_to_word(0x1818);
 
@@ -542,7 +614,7 @@ mod test {
         let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0x9999);
 
-        let mut vm = setup_op(VariableOps::AND, 99);
+        let mut vm = setup_var_op(VariableOps::AND, 99);
         set_int(&mut vm, 99, 0x8181);
         vm.A = u32_to_word(0xFFFF);
 
@@ -554,7 +626,7 @@ mod test {
 
     #[test]
     fn overflow() {
-        let mut vm = setup_op(VariableOps::ADD, 99);
+        let mut vm = setup_var_op(VariableOps::ADD, 99);
         set_int(&mut vm, 99, 0xFF_FF_FF);
         vm.A = u32_to_word(1);
 
@@ -564,7 +636,7 @@ mod test {
 
     #[test]
     fn math() {
-        let mut vm = setup_op(VariableOps::ADD, 99);
+        let mut vm = setup_var_op(VariableOps::ADD, 99);
         set_int(&mut vm, 99, (-32 as i32) as u32);
         vm.A = u32_to_word(32);
 
@@ -579,7 +651,7 @@ mod test {
         vm.step();
         assert_eq!(vm.A.as_i32(), 32);
 
-        let mut vm = setup_op(VariableOps::SUB, 99);
+        let mut vm = setup_var_op(VariableOps::SUB, 99);
         set_int(&mut vm, 99, 10);
         vm.A = u32_to_word(5);
 
@@ -587,7 +659,7 @@ mod test {
 
         assert_eq!(vm.A.as_i32(), -5);
 
-        let mut vm = setup_op(VariableOps::MUL, 99);
+        let mut vm = setup_var_op(VariableOps::MUL, 99);
         set_int(&mut vm, 99, 10);
         vm.A = u32_to_word(5);
 
@@ -595,7 +667,7 @@ mod test {
 
         assert_eq!(vm.A.as_i32(), 50);
 
-        let mut vm = setup_op(VariableOps::DIV, 99);
+        let mut vm = setup_var_op(VariableOps::DIV, 99);
         set_int(&mut vm, 99, 5);
         vm.A = u32_to_word(10);
 
@@ -606,7 +678,7 @@ mod test {
 
     #[test]
     fn jumps() {
-        let mut vm = setup_op(VariableOps::J, 33);
+        let mut vm = setup_var_op(VariableOps::J, 33);
         set_int(&mut vm, 99, 33);
         ni_op(&mut vm, 33, VariableOps::LDA, 99);
 
@@ -616,7 +688,7 @@ mod test {
         assert_eq!(vm.A.as_u32(), 33);
 
         // Comp JEQ EQ
-        let mut vm = setup_op(VariableOps::COMP, 99);
+        let mut vm = setup_var_op(VariableOps::COMP, 99);
         ni_op(&mut vm, 3, VariableOps::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 33);
@@ -626,7 +698,7 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 33);
 
         // Comp JEQ LT
-        let mut vm = setup_op(VariableOps::COMP, 99);
+        let mut vm = setup_var_op(VariableOps::COMP, 99);
         ni_op(&mut vm, 3, VariableOps::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
@@ -636,7 +708,7 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 6);
 
         // Comp JEQ GT
-        let mut vm = setup_op(VariableOps::COMP, 99);
+        let mut vm = setup_var_op(VariableOps::COMP, 99);
         ni_op(&mut vm, 3, VariableOps::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
@@ -646,7 +718,7 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 6);
 
         // Comp JLT
-        let mut vm = setup_op(VariableOps::COMP, 99);
+        let mut vm = setup_var_op(VariableOps::COMP, 99);
         ni_op(&mut vm, 3, VariableOps::JLT, 34);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
@@ -656,7 +728,7 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 34);
 
         // Comp JGT
-        let mut vm = setup_op(VariableOps::COMP, 99);
+        let mut vm = setup_var_op(VariableOps::COMP, 99);
         ni_op(&mut vm, 3, VariableOps::JGT, 32);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
@@ -668,7 +740,7 @@ mod test {
 
     #[test]
     fn subroutines() {
-        let mut vm = setup_op(VariableOps::JSUB, 99);
+        let mut vm = setup_var_op(VariableOps::JSUB, 99);
         ni_op(&mut vm, 99, VariableOps::LDA, 199);
         ni_op(&mut vm, 102, VariableOps::RSUB, 0);
         ni_op(&mut vm, 3, VariableOps::STA, 6);
@@ -685,7 +757,7 @@ mod test {
 
     #[test]
     fn index() {
-        let mut vm = SicVm::empty();
+        let mut vm = SicXeVm::empty();
         set_op(
             &mut vm,
             0,
@@ -791,7 +863,7 @@ mod test {
 
     #[test]
     fn devices() {
-        let mut vm = setup_op(VariableOps::TD, 99);
+        let mut vm = setup_var_op(VariableOps::TD, 99);
         let write_buf = Rc::new(RefCell::new(Vec::new()));
         vm.devices.insert(
             1,
@@ -842,9 +914,9 @@ mod test {
     #[test]
     fn unrecognized() {
         // TODO: Treat unrecognized opcodes as noop for now
-        let mut vm = SicVm::empty();
+        let mut vm = SicXeVm::empty();
         vm.memory[0] = 0xFF;
-        let mut expected = SicVm::empty();
+        let mut expected = SicXeVm::empty();
         expected.memory = vm.memory.clone();
 
         vm.step();
@@ -856,5 +928,37 @@ mod test {
         assert_eq!(vm.L, expected.L);
         assert_eq!(vm.SW, expected.SW);
         assert_eq!(vm.memory, expected.memory);
+    }
+
+    #[test]
+    fn floats() {
+        let mut vm = setup_var_op(VariableOps::LDF, 99);
+        ni_op(&mut vm, 3, VariableOps::ADDF, 99);
+        ni_op(&mut vm, 6, VariableOps::MULF, 105);
+        ni_op(&mut vm, 9, VariableOps::DIVF, 105);
+        ni_op(&mut vm, 12, VariableOps::STF, 111);
+        ni_op(&mut vm, 15, VariableOps::COMPF, 105);
+        set_op(&mut vm, 18, Op::OneByte(OneByteOps::FIX));
+        set_op(&mut vm, 21, Op::OneByte(OneByteOps::FLOAT));
+        set_float(&mut vm, 99, 10.5);
+        set_float(&mut vm, 105, 2.5);
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 10.5);
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 21.0);
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 52.5);
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 21.0);
+        vm.step();
+        let result = vm.dword_at(111, &AddressFlags::default()).as_f64();
+        assert_eq!(result, 21.0);
+        vm.step();
+        assert_eq!(check_cc(&vm.SW), Ordering::Greater);
+        vm.step();
+        assert_eq!(vm.A.as_u32(), 21);
+        vm.A = u32_to_word(40);
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 40.0);
     }
 }

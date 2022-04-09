@@ -1,8 +1,6 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-use crate::word::Word;
-
 #[derive(FromPrimitive, Debug, Clone, Copy)]
 pub enum OneByteOps {
     FIX = 0xC4,
@@ -31,13 +29,41 @@ pub enum TwoByteOps {
     TIXR = 0xB8,
 }
 
-pub struct TwoByte {
-    pub opcode: TwoByteOps,
-    pub r1: u8,
-    pub r2: u8,
+#[derive(Copy, Clone, Debug, FromPrimitive)]
+pub enum Register {
+    A = 0,
+    X = 1,
+    L = 2,
+    B = 3,
+    S = 4,
+    T = 5,
+    F = 6,
+    PC = 8,
+    SW = 9,
 }
 
-#[derive(Debug, Clone)]
+impl Register {
+    fn from_r1(registers: u8) -> Option<Register> {
+        FromPrimitive::from_u8(registers << 4)
+    }
+
+    fn from_r2(registers: u8) -> Option<Register> {
+        FromPrimitive::from_u8(registers & 0x0F)
+    }
+
+    fn r1_with(&self, r2: &Register) -> u8 {
+        let r1 = (*self as u8) << 4;
+        r1 + ((*r2 as u8) & 0x0F)
+    }
+}
+
+pub struct TwoByte {
+    pub opcode: TwoByteOps,
+    pub r1: Register,
+    pub r2: Register,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum AddressMode {
     Compatiblity,
     Simple,
@@ -45,7 +71,13 @@ pub enum AddressMode {
     Indirect,
 }
 
-#[derive(Debug, Clone)]
+impl Default for AddressMode {
+    fn default() -> Self {
+        Self::Simple
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub struct AddressFlags {
     pub mode: AddressMode,
     pub indexed: bool,
@@ -114,8 +146,8 @@ impl Op {
         if let Some(two) = FromPrimitive::from_u8(bytes[0]) {
             return Some(Self::TwoByte(TwoByte {
                 opcode: two,
-                r1: (bytes[1] & 0xF0) >> 4,
-                r2: bytes[1] & 0x0F,
+                r1: Register::from_r1(bytes[1])?,
+                r2: Register::from_r2(bytes[1])?,
             }));
         }
 
@@ -136,7 +168,7 @@ impl Op {
     pub fn to_bytes(&self) -> [u8; 4] {
         match self {
             Op::OneByte(opcode) => [*opcode as u8, 0, 0, 0],
-            Op::TwoByte(tb) => [tb.opcode as u8, (tb.r1 << 4) + tb.r2, 0, 0],
+            Op::TwoByte(tb) => [tb.opcode as u8, tb.r1.r1_with(&tb.r2), 0, 0],
             Op::Variable(var) => {
                 let opcode = var.opcode as u8;
                 let x = if var.address_flags.indexed {

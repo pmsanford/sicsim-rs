@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read};
 
-use super::vm::SicVm;
+use super::vm::SicXeVm;
 
 pub struct Header {
     pub name: String,
@@ -101,8 +101,8 @@ pub fn copy_to_memory(memory: &mut [u8], program: &Program) {
     }
 }
 
-pub fn init_with_program(path: &str) -> SicVm {
-    let mut vm = SicVm::empty();
+pub fn init_with_program(path: &str) -> SicXeVm {
+    let mut vm = SicXeVm::empty();
 
     let program = load_program(path);
 
@@ -113,15 +113,15 @@ pub fn init_with_program(path: &str) -> SicVm {
     vm
 }
 
-pub fn vm_with_program(program_text: &str) -> SicVm {
-    let mut vm = SicVm::empty();
+pub fn vm_with_program(program_text: &str) -> SicXeVm {
+    let mut vm = SicXeVm::empty();
     let program = load_program(program_text);
     copy_to_memory(&mut vm.memory, &program);
     vm.set_pc(program.end.first_address);
     vm
 }
 
-pub fn load_program_to(vm: &mut SicVm, program_text: &str) {
+pub fn load_program_to(vm: &mut SicXeVm, program_text: &str) {
     let program = load_program(program_text);
     copy_to_memory(&mut vm.memory, &program);
 }

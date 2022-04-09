@@ -10,101 +10,6 @@ pub trait DWordExt {
 
 const U64_TOP_BIT: u64 = 0x8000000000000000;
 
-//TODO: Handle running out of precision
-fn frac_to_binary(fraction: f64) -> u64 {
-    println!("pf: {}", fraction);
-    let fraction = fraction - (fraction as u64) as f64;
-    println!("af: {}", fraction);
-    if fraction == 0.0 {
-        return 0;
-    }
-    let mut current = fraction;
-    let mut binary = 0;
-    while current != 1.0 {
-        println!("pc: {}", current);
-        current = current * 2.0;
-        binary = binary >> 1;
-        if current >= 1.0 {
-            binary += U64_TOP_BIT;
-        }
-    }
-
-    binary
-}
-
-//TODO: Handle running out of precision
-// This is the reverse of the f64 conversion
-fn f64_to_dword(f: f64) -> DWord {
-    if f == 0.0 {
-        return [0, 0, 0, 0, 0, 0];
-    } else if f == -0.0 {
-        // :(
-        return [0x80, 0, 0, 0, 0, 0];
-    }
-
-    if !f.is_normal() {
-        panic!("Punting on this for now");
-    }
-
-    let sign = if f.is_sign_negative() { 0x80 } else { 0 };
-    // This is the part to the left of the decimal
-    let integer = f as u64;
-    // This is the part to the right
-    let fraction = frac_to_binary(f);
-    let mut exponent: i16 = 0;
-    let lower_bytes: [u8; 5];
-
-    if integer > 0 {
-        // First case: our number is >= 1
-        // We have to get everything to the right of the decimal
-        let mut shifted = integer;
-
-        // We count how many shifts we need to get rid of all the bits
-        // we have in the integer portion.
-        while shifted > 0 {
-            shifted = shifted >> 1;
-            exponent += 1;
-        }
-        // We offset by -4 here to account for the half byte taken up by the exponent in our
-        // representaiton
-        let [a, b, c, d, e, _, _, _] =
-            ((integer << (64 - 4 - exponent)) + (fraction >> exponent + 4)).to_be_bytes();
-        lower_bytes = [a, b, c, d, e];
-    } else {
-        // Second case: our number is < 1
-        let mut shifted = fraction;
-
-        // We rely on shifting everything off the left end
-        while shifted & U64_TOP_BIT == 0 {
-            println!("shifted: {:0>64b}", shifted);
-            shifted = shifted << 1;
-            exponent -= 1;
-        }
-
-        // We offset by -4 here to account for the half byte taken up by the exponent in our
-        // representaiton
-        println!("Exponent: {}", exponent);
-        println!("frac: {:0>64b}", fraction);
-        println!("frac r: {:0>64b}", fraction >> 4);
-        println!("frac r: {:0>64b}", ((fraction >> 4) << exponent.abs()));
-        let [a, b, c, d, e, _, _, _] = ((fraction >> 4) << exponent.abs()).to_be_bytes();
-        lower_bytes = [a, b, c, d, e];
-    }
-
-    let [exp_u, exp_l] = (exponent + 1024).to_be_bytes();
-
-    println!("{} {} {:?}", exp_u, exp_l, lower_bytes);
-
-    [
-        sign + (exp_u & 0x7F),
-        (exp_l << 4) + lower_bytes[0],
-        lower_bytes[1],
-        lower_bytes[2],
-        lower_bytes[3],
-        lower_bytes[4],
-    ]
-}
-
 impl DWordExt for DWord {
     // The SIC/XE float format is a 48 bit float
     // It consists of a 1 bit sign, 11 bit exponent, and 36 bit fraction
@@ -120,7 +25,6 @@ impl DWordExt for DWord {
         let upper_exponent = self[0] & 0x7F;
         let lower_exponent = (self[1] & 0xF0) >> 4;
         let exponent = u16::from_be_bytes([upper_exponent, lower_exponent]);
-        println!("pe: {}", exponent);
         let exponent = exponent as i16 - 1024;
 
         // Now for the fun part
@@ -143,15 +47,8 @@ impl DWordExt for DWord {
             if (fraction << i) & U64_TOP_BIT > 0 {
                 sum = sum + 2f64.powf((-1 * (i + 1)) as f64);
             }
-            println!("sum: {}", sum);
         }
 
-        println!(
-            "sum: {} ep: {} math: {}",
-            sum,
-            2f64.powf(exponent as f64),
-            sum * 2f64.powf(exponent as f64)
-        );
         let abs = sum * 2f64.powf(exponent as f64);
 
         sign as f64 * abs
@@ -179,6 +76,97 @@ impl DWordExt for DWord {
             val as i64
         }
     }
+}
+
+//TODO: Handle running out of precision
+fn frac_to_binary(fraction: f64) -> u64 {
+    let fraction = fraction.abs();
+    let fraction = fraction - (fraction as u64) as f64;
+    if fraction == 0.0 {
+        return 0;
+    }
+    let mut current = fraction;
+    let mut binary = 0;
+    let mut counter = 0;
+    while current != 0.0 && counter < 36 {
+        current = current * 2.0;
+        binary = binary << 1;
+        counter += 1;
+        if current >= 1.0 {
+            binary += 1;
+        }
+        current = current % 1.0;
+    }
+
+    binary = binary << (64 - counter);
+
+    binary
+}
+
+//TODO: Handle running out of precision
+// This is the reverse of the f64 conversion
+pub fn f64_to_dword(f: f64) -> DWord {
+    if f == 0.0 {
+        return [0, 0, 0, 0, 0, 0];
+    } else if f == -0.0 {
+        // :(
+        return [0x80, 0, 0, 0, 0, 0];
+    }
+
+    if !f.is_normal() {
+        panic!("Punting on this for now");
+    }
+
+    let sign = if f.is_sign_negative() { 0x80 } else { 0 };
+    // This is the part to the left of the decimal
+    let integer = f.abs() as u64;
+    // This is the part to the right
+    let fraction = frac_to_binary(f);
+    let mut exponent: i16 = 0;
+    let lower_bytes: [u8; 5];
+
+    if integer > 0 {
+        // First case: our number is >= 1
+        // We have to get everything to the right of the decimal
+        let mut shifted = integer;
+
+        // We count how many shifts we need to get rid of all the bits
+        // we have in the integer portion.
+        while shifted > 0 {
+            shifted = shifted >> 1;
+            exponent += 1;
+        }
+        // We offset by -4 here to account for the half byte taken up by the exponent in our
+        // representaiton
+        let [a, b, c, d, e, _, _, _] =
+            ((integer << (64 - 4 - exponent)) + (fraction >> exponent + 4)).to_be_bytes();
+        lower_bytes = [a, b, c, d, e];
+    } else {
+        // Second case: our number is < 1
+        let mut shifted = fraction;
+
+        // We rely on shifting everything off the left end
+        while shifted & U64_TOP_BIT == 0 {
+            shifted = shifted << 1;
+            exponent -= 1;
+        }
+
+        // We offset by -4 here to account for the half byte taken up by the exponent in our
+        // representaiton
+        let [a, b, c, d, e, _, _, _] = ((fraction >> 4) << exponent.abs()).to_be_bytes();
+        lower_bytes = [a, b, c, d, e];
+    }
+
+    let [exp_u, exp_l] = (exponent + 1024).to_be_bytes();
+
+    [
+        sign + (exp_u & 0x7F),
+        (exp_l << 4) + lower_bytes[0],
+        lower_bytes[1],
+        lower_bytes[2],
+        lower_bytes[3],
+        lower_bytes[4],
+    ]
 }
 
 pub trait WordExt {
@@ -212,6 +200,11 @@ impl WordExt for Word {
     }
 }
 
+pub fn i32_to_word(i: i32) -> Word {
+    let [_, a, b, c] = i.to_be_bytes();
+    [a, b, c]
+}
+
 pub fn u32_to_word(i: u32) -> Word {
     let [_, a, b, c] = i.to_be_bytes();
     [a, b, c]
@@ -226,7 +219,7 @@ pub fn u8_to_word(i: u8) -> Word {
     [0, 0, i]
 }
 
-fn format_dword(dword: DWord) -> String {
+pub fn format_dword(dword: DWord) -> String {
     let sign = if dword[0] & 0x80 > 0 { 1 } else { 0 };
     let exponent = u16::from_be_bytes([dword[0] & 0x7F, (dword[1] & 0xF0) >> 4]) - 1024;
     let fraction = u64::from_be_bytes([
@@ -248,14 +241,10 @@ mod test {
 
     #[test]
     fn f48() {
-        let i = 0.5;
+        let i = -1.625;
         let dword = f64_to_dword(i);
-        let exponent = i16::from_be_bytes([dword[0] & 0x7F, dword[1] & 0xF0]) - 1024;
         let back = dword.as_f64();
 
-        println!("{}", format_dword(dword));
-        println!("e: {}", exponent);
-        println!("back: {}", back);
         assert_eq!(i, back);
     }
 

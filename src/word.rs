@@ -1,4 +1,36 @@
+pub type DWord = [u8; 6];
 pub type Word = [u8; 3];
+
+pub trait DWordExt {
+    fn as_u64(&self) -> u64;
+    fn as_usize(&self) -> usize;
+    fn as_i64(&self) -> i64;
+}
+
+impl DWordExt for DWord {
+    fn as_u64(&self) -> u64 {
+        let [a, b, c, d, e, f] = *self;
+        u64::from_be_bytes([0, 0, a, b, c, d, e, f])
+    }
+
+    fn as_usize(&self) -> usize {
+        let [a, b, c, d, e, f] = *self;
+        usize::from_be_bytes([0, 0, a, b, c, d, e, f])
+    }
+
+    fn as_i64(&self) -> i64 {
+        let [a, b, c, d, e, f] = *self;
+        let neg = a & 0x80 > 0;
+        let a = a & 0x7F;
+        let val = u64::from_be_bytes([0, 0, a, b, c, d, e, f]);
+        if neg {
+            // Don't do any twos complement just sign extend baybee
+            (val | 0xFF_FF_80_00_00_00_00_00) as i64
+        } else {
+            val as i64
+        }
+    }
+}
 
 pub trait WordExt {
     fn as_u32(&self) -> u32;

@@ -120,11 +120,33 @@ impl SicVm {
         ]
     }
 
+    fn dword_at(&self, address: u32, flags: &AddressFlags) -> DWord {
+        let address = self.calc_addr(address, flags);
+        [
+            self.memory[address],
+            self.memory[address + 1],
+            self.memory[address + 2],
+            self.memory[address + 3],
+            self.memory[address + 4],
+            self.memory[address + 5],
+        ]
+    }
+
     fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
         let address = self.calc_addr(address, flags);
         self.memory[address] = value[0];
         self.memory[address + 1] = value[1];
         self.memory[address + 2] = value[2];
+    }
+
+    fn set_dword_at(&mut self, address: u32, flags: &AddressFlags, value: DWord) {
+        let address = self.calc_addr(address, flags);
+        self.memory[address] = value[0];
+        self.memory[address + 1] = value[1];
+        self.memory[address + 2] = value[2];
+        self.memory[address + 3] = value[3];
+        self.memory[address + 4] = value[4];
+        self.memory[address + 5] = value[5];
     }
 
     fn pc_address(&self) -> u32 {
@@ -192,6 +214,30 @@ impl SicVm {
                     VariableOps::STL => {
                         self.set_at(op.address, &op.address_flags, self.L);
                     }
+                    VariableOps::LDB => {
+                        self.B = self.word_at(op.address, &op.address_flags);
+                    }
+                    VariableOps::STB => {
+                        self.set_at(op.address, &op.address_flags, self.B);
+                    }
+                    VariableOps::LDS => {
+                        self.S = self.word_at(op.address, &op.address_flags);
+                    }
+                    VariableOps::STS => {
+                        self.set_at(op.address, &op.address_flags, self.S);
+                    }
+                    VariableOps::LDT => {
+                        self.T = self.word_at(op.address, &op.address_flags);
+                    }
+                    VariableOps::STT => {
+                        self.set_at(op.address, &op.address_flags, self.T);
+                    }
+                    VariableOps::LDF => {
+                        self.F = self.dword_at(op.address, &op.address_flags);
+                    }
+                    VariableOps::STF => {
+                        self.set_dword_at(op.address, &op.address_flags, self.F);
+                    }
                     VariableOps::LDX => {
                         self.X = self.word_at(op.address, &op.address_flags);
                     }
@@ -225,6 +271,7 @@ impl SicVm {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
                     }
+                    VariableOps::ADDF => {}
                     VariableOps::SUB => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
@@ -295,7 +342,7 @@ impl SicVm {
                         let device_id = self.memory[op.address as usize];
                         self.write_device(device_id, self.A[2]);
                     }
-                    _ => {} //TODO: Xe instructions
+                    _ => {}
                 }
             }
             _ => {} //TODO: One- and Two-byte

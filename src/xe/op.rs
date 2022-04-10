@@ -44,7 +44,7 @@ pub enum Register {
 
 impl Register {
     fn from_r1(registers: u8) -> Option<Register> {
-        FromPrimitive::from_u8(registers << 4)
+        FromPrimitive::from_u8(registers >> 4)
     }
 
     fn from_r2(registers: u8) -> Option<Register> {
@@ -57,6 +57,7 @@ impl Register {
     }
 }
 
+#[derive(Debug)]
 pub struct TwoByte {
     pub opcode: TwoByteOps,
     pub r1: Register,
@@ -110,12 +111,14 @@ impl AddressMode {
     }
 }
 
+#[derive(Debug)]
 pub struct Variable {
     pub opcode: VariableOps,
     pub address_flags: AddressFlags,
     pub address: u32,
 }
 
+#[derive(Debug)]
 pub enum Op {
     OneByte(OneByteOps),
     TwoByte(TwoByte),

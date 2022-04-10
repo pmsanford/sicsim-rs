@@ -1,4 +1,4 @@
-use super::op::{AddressFlags, OneByteOps, Op, VariableOps};
+use super::op::{AddressFlags, OneByteOps, Op, Register, VariableOps};
 use crate::device::Device;
 use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
 use std::cmp::Ordering;
@@ -132,6 +132,38 @@ impl SicXeVm {
         ]
     }
 
+    fn set_register(&mut self, register: &Register, value: Word) {
+        match register {
+            Register::A => self.A = value,
+            Register::X => self.X = value,
+            Register::L => self.L = value,
+            Register::B => self.B = value,
+            Register::S => self.S = value,
+            Register::T => self.T = value,
+            Register::PC => self.PC = value,
+            Register::SW => self.SW = value,
+            Register::F => {
+                self.F[0] = value[0];
+                self.F[1] = value[1];
+                self.F[2] = value[2];
+            }
+        }
+    }
+
+    fn get_register(&self, register: &Register) -> Word {
+        match register {
+            Register::A => self.A,
+            Register::X => self.X,
+            Register::L => self.L,
+            Register::B => self.B,
+            Register::S => self.S,
+            Register::T => self.T,
+            Register::PC => self.PC,
+            Register::SW => self.SW,
+            Register::F => [self.F[0], self.F[1], self.F[2]],
+        }
+    }
+
     fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
         let address = self.calc_addr(address, flags);
         self.memory[address] = value[0];
@@ -161,6 +193,12 @@ impl SicXeVm {
     fn compf(&mut self, register: DWord, address: u32, flags: &AddressFlags) {
         let memory = self.dword_at(address, flags);
         set_cc(&mut self.SW, register.cmp(&memory));
+    }
+
+    fn compr(&mut self, r1: &Register, r2: &Register) {
+        let r1_val = self.get_register(r1);
+        let r2_val = self.get_register(r2);
+        set_cc(&mut self.SW, r1_val.cmp(&r2_val));
     }
 
     pub fn run_until(&mut self, max_cycles: u64) -> StopReason {
@@ -391,11 +429,68 @@ impl SicXeVm {
                     self.F = f64_to_dword(int as f64);
                 }
                 OneByteOps::HIO => todo!(),
-                OneByteOps::NORM => todo!(),
+                OneByteOps::NORM => {
+                    // NB: The only way this does anything is if the floats
+                    // are manipulated outside of the floating point
+                    // instructions - they always produce normalized floats
+                    let f = self.F.as_f64();
+                    self.F = f64_to_dword(f);
+                }
                 OneByteOps::SIO => todo!(),
                 OneByteOps::TIO => todo!(),
             },
-            _ => {} //TODO: One- and Two-byte
+            Some(Op::TwoByte(two_byte)) => match two_byte.opcode {
+                super::op::TwoByteOps::ADDR => {
+                    self.set_register(
+                        &two_byte.r2,
+                        u32_to_word(
+                            self.get_register(&two_byte.r2).as_u32()
+                                + self.get_register(&two_byte.r1).as_u32(),
+                        ),
+                    );
+                }
+                super::op::TwoByteOps::CLEAR => {
+                    self.set_register(&two_byte.r1, u32_to_word(0));
+                }
+                super::op::TwoByteOps::DIVR => {
+                    self.set_register(
+                        &two_byte.r2,
+                        u32_to_word(
+                            self.get_register(&two_byte.r2).as_u32()
+                                / self.get_register(&two_byte.r1).as_u32(),
+                        ),
+                    );
+                }
+                super::op::TwoByteOps::MULR => {
+                    self.set_register(
+                        &two_byte.r2,
+                        u32_to_word(
+                            self.get_register(&two_byte.r2).as_u32()
+                                * self.get_register(&two_byte.r1).as_u32(),
+                        ),
+                    );
+                }
+                super::op::TwoByteOps::RMO => {
+                    self.set_register(&two_byte.r2, self.get_register(&two_byte.r1));
+                }
+                super::op::TwoByteOps::SHIFTL => todo!(),
+                super::op::TwoByteOps::SHIFTR => todo!(),
+                super::op::TwoByteOps::SUBR => {
+                    self.set_register(
+                        &two_byte.r2,
+                        u32_to_word(
+                            self.get_register(&two_byte.r2).as_u32()
+                                - self.get_register(&two_byte.r1).as_u32(),
+                        ),
+                    );
+                }
+                super::op::TwoByteOps::SVC => todo!(),
+                super::op::TwoByteOps::TIXR => {
+                    self.X = u32_to_word(self.X.as_u32() + 1);
+                    self.compr(&Register::X, &two_byte.r1);
+                }
+            },
+            None => {}
         }
     }
 }
@@ -410,7 +505,10 @@ pub enum StopReason {
 mod test {
     use std::{cell::RefCell, ops::Deref, rc::Rc};
 
-    use crate::xe::op::{AddressMode, Register, TwoByte, TwoByteOps, Variable};
+    use crate::{
+        word::i16_to_exponent,
+        xe::op::{AddressMode, Register, TwoByte, TwoByteOps, Variable},
+    };
 
     use super::*;
 
@@ -467,10 +565,8 @@ mod test {
         );
     }
 
-    fn setup_one_op(opcode: OneByteOps) -> SicXeVm {
-        let mut vm = SicXeVm::empty();
-        set_op(&mut vm, 0, Op::OneByte(opcode));
-        vm
+    fn reg_op(vm: &mut SicXeVm, address: usize, opcode: TwoByteOps, r1: Register, r2: Register) {
+        set_op(vm, address, Op::TwoByte(TwoByte { opcode, r1, r2 }));
     }
 
     fn setup_two_op(opcode: TwoByteOps, r1: Register, r2: Register) -> SicXeVm {
@@ -940,6 +1036,7 @@ mod test {
         ni_op(&mut vm, 15, VariableOps::COMPF, 105);
         set_op(&mut vm, 18, Op::OneByte(OneByteOps::FIX));
         set_op(&mut vm, 21, Op::OneByte(OneByteOps::FLOAT));
+        set_op(&mut vm, 24, Op::OneByte(OneByteOps::NORM));
         set_float(&mut vm, 99, 10.5);
         set_float(&mut vm, 105, 2.5);
         vm.step();
@@ -960,5 +1057,48 @@ mod test {
         vm.A = u32_to_word(40);
         vm.step();
         assert_eq!(vm.F.as_f64(), 40.0);
+        let [exp_u, exp_l] = i16_to_exponent(1);
+        vm.F = [exp_u, exp_l + 0x04, 0, 0, 0, 0];
+        vm.step();
+        assert_eq!(vm.F.as_f64(), 0.5);
+        let [_, exp_l] = i16_to_exponent(0);
+        assert_eq!(vm.F[1], exp_l + 0x08);
+    }
+
+    #[test]
+    fn register_ops() {
+        let mut vm = setup_two_op(TwoByteOps::ADDR, Register::A, Register::S);
+        vm.A = u32_to_word(1);
+        vm.S = u32_to_word(1);
+        reg_op(&mut vm, 3, TwoByteOps::CLEAR, Register::S, Register::A);
+        reg_op(&mut vm, 6, TwoByteOps::DIVR, Register::A, Register::S);
+        reg_op(&mut vm, 9, TwoByteOps::MULR, Register::A, Register::S);
+        reg_op(&mut vm, 12, TwoByteOps::RMO, Register::A, Register::S);
+        reg_op(&mut vm, 15, TwoByteOps::SUBR, Register::A, Register::S);
+        reg_op(&mut vm, 18, TwoByteOps::TIXR, Register::A, Register::S);
+        reg_op(&mut vm, 21, TwoByteOps::TIXR, Register::A, Register::S);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 2);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 0);
+        vm.S = u32_to_word(4);
+        vm.A = u32_to_word(2);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 2);
+        vm.A = u32_to_word(3);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 6);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 3);
+        vm.A = u32_to_word(2);
+        vm.step();
+        assert_eq!(vm.S.as_u32(), 1);
+        vm.A = u32_to_word(1);
+        vm.step();
+        assert_eq!(vm.X.as_u32(), 1);
+        assert_eq!(check_cc(&vm.SW), Ordering::Equal);
+        vm.step();
+        assert_eq!(vm.X.as_u32(), 2);
+        assert_eq!(check_cc(&vm.SW), Ordering::Greater);
     }
 }

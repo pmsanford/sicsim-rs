@@ -103,6 +103,11 @@ fn frac_to_binary(fraction: f64) -> u64 {
     binary
 }
 
+pub fn i16_to_exponent(i: i16) -> [u8; 2] {
+    let [exp_u, exp_l] = (i + 1024).to_be_bytes();
+    [exp_u & 0x7F, exp_l << 4]
+}
+
 //TODO: Handle running out of precision
 // This is the reverse of the f64 conversion
 pub fn f64_to_dword(f: f64) -> DWord {
@@ -157,11 +162,11 @@ pub fn f64_to_dword(f: f64) -> DWord {
         lower_bytes = [a, b, c, d, e];
     }
 
-    let [exp_u, exp_l] = (exponent + 1024).to_be_bytes();
+    let [exp_u, exp_l] = i16_to_exponent(exponent);
 
     [
-        sign + (exp_u & 0x7F),
-        (exp_l << 4) + lower_bytes[0],
+        sign + exp_u,
+        exp_l + lower_bytes[0],
         lower_bytes[1],
         lower_bytes[2],
         lower_bytes[3],

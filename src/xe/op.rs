@@ -84,7 +84,7 @@ pub struct Shift {
     pub n: u8,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressMode {
     Compatiblity,
     Simple,
@@ -166,6 +166,26 @@ fn calc_address(bytes: [u8; 4], flags: &AddressFlags) -> u32 {
 }
 
 impl Op {
+    pub fn len(&self) -> u32 {
+        match self {
+            Op::OneByte(_) => 1,
+            Op::OneReg(_) => 2,
+            Op::TwoReg(_) => 2,
+            Op::Shift(_) => 2,
+            Op::Svc(_) => 2,
+            Op::Variable(Variable {
+                address_flags: AddressFlags { mode, extended, .. },
+                ..
+            }) => {
+                if *extended && *mode != AddressMode::Compatiblity {
+                    4
+                } else {
+                    3
+                }
+            }
+        }
+    }
+
     pub fn from_bytes(bytes: [u8; 4]) -> Option<Self> {
         if bytes[0] == SVC {
             return Some(Self::Svc(bytes[1] & 0xF0));
@@ -271,6 +291,29 @@ impl Op {
                 [a, b + flags, c, d]
             }
         }
+    }
+}
+
+pub fn is_privileged(op: &Op) -> bool {
+    match op {
+        Op::OneByte(one_byte) => match one_byte {
+            OneByteOp::SIO | OneByteOp::TIO | OneByteOp::HIO => true,
+            _ => false,
+        },
+        Op::OneReg(_) => false,
+        Op::TwoReg(_) => false,
+        Op::Shift(_) => false,
+        Op::Svc(_) => true,
+        Op::Variable(Variable { opcode, .. }) => match opcode {
+            VariableOp::LPS
+            | VariableOp::RD
+            | VariableOp::SSK
+            | VariableOp::STI
+            | VariableOp::STSW
+            | VariableOp::TD
+            | VariableOp::WD => true,
+            _ => false,
+        },
     }
 }
 

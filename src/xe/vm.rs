@@ -1,4 +1,7 @@
-use super::op::{AddressFlags, OneByteOp, OneRegOp, Op, Register, ShiftOp, TwoRegOp, VariableOp};
+use super::op::{
+    is_privileged, AddressFlags, OneByteOp, OneRegOp, Op, Register, ShiftOp, TwoRegOp, VariableOp,
+};
+use super::status_word::{check_cc, set_cc, supervisor_mode};
 use crate::device::Device;
 use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
 use std::cmp::Ordering;
@@ -28,32 +31,6 @@ impl Debug for SicXeVm {
             .field("PC", &self.PC)
             .field("SW", &self.SW)
             .finish()
-    }
-}
-
-const CC_MASK: u8 = 0x03;
-const CC_LT: u8 = 0x01;
-const CC_GT: u8 = 0x02;
-const CC_EQ: u8 = 0x00;
-const CC_BYTE: usize = 0;
-
-fn set_cc(sw: &mut Word, val: Ordering) {
-    sw[CC_BYTE] = (sw[CC_BYTE] & (CC_MASK ^ 0xFF))
-        | match val {
-            Ordering::Less => CC_LT,
-            Ordering::Equal => CC_EQ,
-            Ordering::Greater => CC_GT,
-        };
-}
-
-fn check_cc(sw: &Word) -> Ordering {
-    let cc = sw[CC_BYTE] & CC_MASK;
-    match cc {
-        CC_LT => Ordering::Less,
-        CC_EQ => Ordering::Equal,
-        CC_GT => Ordering::Greater,
-        // All possibilities covered assuming the mask is correct
-        _ => unreachable!(),
     }
 }
 
@@ -232,9 +209,20 @@ impl SicXeVm {
 
     pub fn step(&mut self) {
         let op = self.get_op_at_pc();
-        self.PC = u32_to_word(self.PC.as_u32() + 3);
+        if op.as_ref().map(|op| is_privileged(op)).unwrap_or(false) && !supervisor_mode(&self.SW) {
+            // TODO: Interrupt, privileged instruction
+        }
+        if let Some(op) = op {
+            self.PC = u32_to_word(self.PC.as_u32() + op.len());
+            self.run_op(op);
+        } else {
+            self.PC = u32_to_word(self.PC.as_u32() + 1);
+        }
+    }
+
+    fn run_op(&mut self, op: Op) {
         match op {
-            Some(Op::Variable(op)) => {
+            Op::Variable(op) => {
                 match op.opcode {
                     // Load/store
                     VariableOp::LDA => {
@@ -410,7 +398,7 @@ impl SicXeVm {
                     VariableOp::STI => todo!(),
                 }
             }
-            Some(Op::OneByte(opcode)) => match opcode {
+            Op::OneByte(opcode) => match opcode {
                 OneByteOp::FIX => {
                     let float = self.F.as_f64();
                     self.A = i32_to_word(float as i32);
@@ -430,7 +418,7 @@ impl SicXeVm {
                 OneByteOp::SIO => todo!(),
                 OneByteOp::TIO => todo!(),
             },
-            Some(Op::OneReg(one_reg)) => match one_reg.opcode {
+            Op::OneReg(one_reg) => match one_reg.opcode {
                 OneRegOp::CLEAR => {
                     self.set_register(&one_reg.r1, u32_to_word(0));
                 }
@@ -439,7 +427,7 @@ impl SicXeVm {
                     self.compr(&Register::X, &one_reg.r1);
                 }
             },
-            Some(Op::TwoReg(two_reg)) => match two_reg.opcode {
+            Op::TwoReg(two_reg) => match two_reg.opcode {
                 TwoRegOp::ADDR => {
                     self.set_register(
                         &two_reg.r2,
@@ -480,7 +468,7 @@ impl SicXeVm {
                     );
                 }
             },
-            Some(Op::Shift(shift)) => match shift.opcode {
+            Op::Shift(shift) => match shift.opcode {
                 ShiftOp::SHIFTL => {
                     self.set_register(
                         &shift.r1,
@@ -494,8 +482,8 @@ impl SicXeVm {
                     );
                 }
             },
-            Some(Op::Svc(_n)) => todo!(),
-            None => {}
+            // Described on p333
+            Op::Svc(_n) => todo!(),
         }
     }
 }
@@ -536,7 +524,10 @@ mod test {
 
     use crate::{
         word::i16_to_exponent,
-        xe::op::{AddressMode, OneReg, OneRegOp, Register, Shift, TwoReg, TwoRegOp, Variable},
+        xe::{
+            op::{AddressMode, OneReg, OneRegOp, Register, Shift, TwoReg, TwoRegOp, Variable},
+            status_word::{CC_BYTE, CC_EQ, CC_GT, CC_LT, CC_MASK},
+        },
     };
 
     use super::*;
@@ -1072,7 +1063,8 @@ mod test {
 
         vm.step();
 
-        assert_eq!(vm.PC.as_u32(), 3);
+        //TODO: Advance one byte?
+        assert_eq!(vm.PC.as_u32(), 1);
 
         assert_eq!(vm.A, expected.A);
         assert_eq!(vm.X, expected.X);
@@ -1090,8 +1082,8 @@ mod test {
         ni_op(&mut vm, 12, VariableOp::STF, 111);
         ni_op(&mut vm, 15, VariableOp::COMPF, 105);
         set_op(&mut vm, 18, Op::OneByte(OneByteOp::FIX));
-        set_op(&mut vm, 21, Op::OneByte(OneByteOp::FLOAT));
-        set_op(&mut vm, 24, Op::OneByte(OneByteOp::NORM));
+        set_op(&mut vm, 19, Op::OneByte(OneByteOp::FLOAT));
+        set_op(&mut vm, 20, Op::OneByte(OneByteOp::NORM));
         set_float(&mut vm, 99, 10.5);
         set_float(&mut vm, 105, 2.5);
         vm.step();
@@ -1125,13 +1117,13 @@ mod test {
         let mut vm = setup_two_op(TwoRegOp::ADDR, Register::A, Register::S);
         vm.A = u32_to_word(1);
         vm.S = u32_to_word(1);
-        one_reg_op(&mut vm, 3, OneRegOp::CLEAR, Register::S);
-        two_reg_op(&mut vm, 6, TwoRegOp::DIVR, Register::A, Register::S);
-        two_reg_op(&mut vm, 9, TwoRegOp::MULR, Register::A, Register::S);
-        two_reg_op(&mut vm, 12, TwoRegOp::RMO, Register::A, Register::S);
-        two_reg_op(&mut vm, 15, TwoRegOp::SUBR, Register::A, Register::S);
-        one_reg_op(&mut vm, 18, OneRegOp::TIXR, Register::A);
-        one_reg_op(&mut vm, 21, OneRegOp::TIXR, Register::A);
+        one_reg_op(&mut vm, 2, OneRegOp::CLEAR, Register::S);
+        two_reg_op(&mut vm, 4, TwoRegOp::DIVR, Register::A, Register::S);
+        two_reg_op(&mut vm, 6, TwoRegOp::MULR, Register::A, Register::S);
+        two_reg_op(&mut vm, 8, TwoRegOp::RMO, Register::A, Register::S);
+        two_reg_op(&mut vm, 10, TwoRegOp::SUBR, Register::A, Register::S);
+        one_reg_op(&mut vm, 12, OneRegOp::TIXR, Register::A);
+        one_reg_op(&mut vm, 14, OneRegOp::TIXR, Register::A);
         vm.step();
         assert_eq!(vm.S.as_u32(), 2);
         vm.step();
@@ -1171,7 +1163,7 @@ mod test {
         );
         set_op(
             &mut vm,
-            3,
+            2,
             Op::Shift(Shift {
                 opcode: ShiftOp::SHIFTR,
                 r1: Register::S,

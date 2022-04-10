@@ -21,12 +21,16 @@ pub enum TwoByteOps {
 
     MULR = 0x98,
     RMO = 0xAC,
-    SHIFTL = 0xA4,
-    SHIFTR = 0xA8,
 
     SUBR = 0x94,
     SVC = 0xB0,
     TIXR = 0xB8,
+}
+
+#[derive(FromPrimitive, Debug, Clone, Copy)]
+pub enum ShiftOps {
+    SHIFTL = 0xA4,
+    SHIFTR = 0xA8,
 }
 
 #[derive(Copy, Clone, Debug, FromPrimitive)]
@@ -62,6 +66,13 @@ pub struct TwoByte {
     pub opcode: TwoByteOps,
     pub r1: Register,
     pub r2: Register,
+}
+
+#[derive(Debug)]
+pub struct Shift {
+    pub opcode: ShiftOps,
+    pub r1: Register,
+    pub n: u8,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -122,6 +133,7 @@ pub struct Variable {
 pub enum Op {
     OneByte(OneByteOps),
     TwoByte(TwoByte),
+    Shift(Shift),
     Variable(Variable),
 }
 
@@ -154,6 +166,14 @@ impl Op {
             }));
         }
 
+        if let Some(shift) = FromPrimitive::from_u8(bytes[0]) {
+            return Some(Self::Shift(Shift {
+                opcode: shift,
+                r1: Register::from_r1(bytes[1])?,
+                n: bytes[1] & 0x0F,
+            }));
+        }
+
         if let Some(var) = FromPrimitive::from_u8(bytes[0]) {
             let address_flags = AddressFlags::from_bytes([bytes[0], bytes[1]]);
             let address = calc_address(bytes, &address_flags);
@@ -172,6 +192,12 @@ impl Op {
         match self {
             Op::OneByte(opcode) => [*opcode as u8, 0, 0, 0],
             Op::TwoByte(tb) => [tb.opcode as u8, tb.r1.r1_with(&tb.r2), 0, 0],
+            Op::Shift(shift) => [
+                shift.opcode as u8,
+                ((shift.r1 as u8) << 4) + (shift.n & 0x0F),
+                0,
+                0,
+            ],
             Op::Variable(var) => {
                 let opcode = var.opcode as u8;
                 let x = if var.address_flags.indexed {

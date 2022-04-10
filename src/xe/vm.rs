@@ -1,4 +1,4 @@
-use super::op::{AddressFlags, OneByteOps, Op, Register, VariableOps};
+use super::op::{AddressFlags, OneByteOps, Op, Register, ShiftOps, TwoByteOps, VariableOps};
 use crate::device::Device;
 use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
 use std::cmp::Ordering;
@@ -405,18 +405,9 @@ impl SicXeVm {
                     }
 
                     // System
-                    VariableOps::SSK => {
-                        //TODO: SSK?
-                        unimplemented!()
-                    }
-                    VariableOps::LPS => {
-                        //TODO: LPS?
-                        unimplemented!()
-                    }
-                    VariableOps::STI => {
-                        //TODO: STI
-                        unimplemented!()
-                    }
+                    VariableOps::SSK => todo!(),
+                    VariableOps::LPS => todo!(),
+                    VariableOps::STI => todo!(),
                 }
             }
             Some(Op::OneByte(opcode)) => match opcode {
@@ -440,7 +431,7 @@ impl SicXeVm {
                 OneByteOps::TIO => todo!(),
             },
             Some(Op::TwoByte(two_byte)) => match two_byte.opcode {
-                super::op::TwoByteOps::ADDR => {
+                TwoByteOps::ADDR => {
                     self.set_register(
                         &two_byte.r2,
                         u32_to_word(
@@ -449,10 +440,10 @@ impl SicXeVm {
                         ),
                     );
                 }
-                super::op::TwoByteOps::CLEAR => {
+                TwoByteOps::CLEAR => {
                     self.set_register(&two_byte.r1, u32_to_word(0));
                 }
-                super::op::TwoByteOps::DIVR => {
+                TwoByteOps::DIVR => {
                     self.set_register(
                         &two_byte.r2,
                         u32_to_word(
@@ -461,7 +452,7 @@ impl SicXeVm {
                         ),
                     );
                 }
-                super::op::TwoByteOps::MULR => {
+                TwoByteOps::MULR => {
                     self.set_register(
                         &two_byte.r2,
                         u32_to_word(
@@ -470,12 +461,10 @@ impl SicXeVm {
                         ),
                     );
                 }
-                super::op::TwoByteOps::RMO => {
+                TwoByteOps::RMO => {
                     self.set_register(&two_byte.r2, self.get_register(&two_byte.r1));
                 }
-                super::op::TwoByteOps::SHIFTL => todo!(),
-                super::op::TwoByteOps::SHIFTR => todo!(),
-                super::op::TwoByteOps::SUBR => {
+                TwoByteOps::SUBR => {
                     self.set_register(
                         &two_byte.r2,
                         u32_to_word(
@@ -484,15 +473,53 @@ impl SicXeVm {
                         ),
                     );
                 }
-                super::op::TwoByteOps::SVC => todo!(),
-                super::op::TwoByteOps::TIXR => {
+                TwoByteOps::SVC => todo!(),
+                TwoByteOps::TIXR => {
                     self.X = u32_to_word(self.X.as_u32() + 1);
                     self.compr(&Register::X, &two_byte.r1);
+                }
+            },
+            Some(Op::Shift(shift)) => match shift.opcode {
+                ShiftOps::SHIFTL => {
+                    self.set_register(
+                        &shift.r1,
+                        circular_shiftl(self.get_register(&shift.r1), shift.n + 1),
+                    );
+                }
+                ShiftOps::SHIFTR => {
+                    self.set_register(
+                        &shift.r1,
+                        filling_shiftr(self.get_register(&shift.r1), shift.n + 1),
+                    );
                 }
             },
             None => {}
         }
     }
+}
+
+fn filling_shiftr(mut val: Word, mut n: u8) -> Word {
+    while n > 0 {
+        let top_bit = val[0] & 0x80;
+        let [_, a, b, c] = (val.as_u32() >> 1).to_be_bytes();
+        val = [a + top_bit, b, c];
+        n -= 1;
+    }
+
+    val
+}
+
+fn circular_shiftl(mut val: Word, mut n: u8) -> Word {
+    while n > 0 {
+        let [carry, a, b, mut c] = (val.as_u32() << 1).to_be_bytes();
+        if (carry & 1) == 1 {
+            c += 1;
+        }
+        val = [a, b, c];
+        n -= 1;
+    }
+
+    val
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -507,10 +534,32 @@ mod test {
 
     use crate::{
         word::i16_to_exponent,
-        xe::op::{AddressMode, Register, TwoByte, TwoByteOps, Variable},
+        xe::op::{AddressMode, Register, Shift, TwoByte, TwoByteOps, Variable},
     };
 
     use super::*;
+
+    #[test]
+    fn shiftr() {
+        let val = u32_to_word(2);
+        assert_eq!(filling_shiftr(val, 1).as_u32(), 1);
+        let val = i32_to_word(-2);
+        assert_eq!(filling_shiftr(val, 1).as_i32(), -1);
+        let val = [0x80, 0x00, 0x0F];
+        assert_eq!(filling_shiftr(val, 8), [0xFF, 0x80, 0x00]);
+    }
+
+    #[test]
+    fn shiftl() {
+        let val = u32_to_word(1);
+        assert_eq!(circular_shiftl(val, 1).as_u32(), 2);
+        let val = u32_to_word(0x800000);
+        assert_eq!(circular_shiftl(val, 1).as_u32(), 1);
+        let val = u32_to_word(0xC00000);
+        assert_eq!(circular_shiftl(val, 2).as_u32(), 3);
+        let val = [0xAB, 0xCD, 0xEF];
+        assert_eq!(circular_shiftl(val, 8), [0xCD, 0xEF, 0xAB]);
+    }
 
     fn set_int(vm: &mut SicXeVm, address: usize, v: u32) {
         let [_, a, b, c] = v.to_be_bytes();
@@ -1100,5 +1149,34 @@ mod test {
         vm.step();
         assert_eq!(vm.X.as_u32(), 2);
         assert_eq!(check_cc(&vm.SW), Ordering::Greater);
+    }
+
+    #[test]
+    fn shifts() {
+        let mut vm = SicXeVm::empty();
+        set_op(
+            &mut vm,
+            0,
+            Op::Shift(Shift {
+                opcode: ShiftOps::SHIFTL,
+                r1: Register::A,
+                n: 1, // = n - 1
+            }),
+        );
+        set_op(
+            &mut vm,
+            3,
+            Op::Shift(Shift {
+                opcode: ShiftOps::SHIFTR,
+                r1: Register::S,
+                n: 1, // = n -1
+            }),
+        );
+        vm.A = u32_to_word(16);
+        vm.S = i32_to_word(-4);
+        vm.step();
+        assert_eq!(vm.A.as_u32(), 64);
+        vm.step();
+        assert_eq!(vm.S.as_i32(), -1);
     }
 }

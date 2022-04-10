@@ -98,22 +98,39 @@ impl Default for AddressMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressRelativeTo {
+    Direct,
+    Base,
+    PC,
+}
+
+impl Default for AddressRelativeTo {
+    fn default() -> Self {
+        AddressRelativeTo::Direct
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AddressFlags {
     pub mode: AddressMode,
+    pub relative_to: AddressRelativeTo,
     pub indexed: bool,
-    pub base_relative: bool,
-    pub pc_relative: bool,
     pub extended: bool,
 }
 
 impl AddressFlags {
     pub fn from_bytes(bytes: [u8; 2]) -> Self {
+        let base_relative = bytes[1] & 0x40 > 0;
+        let pc_relative = bytes[1] & 0x20 > 0;
         AddressFlags {
             mode: AddressMode::from_byte(bytes[0]),
+            relative_to: match (base_relative, pc_relative) {
+                (false, false) | (true, true) => AddressRelativeTo::Direct,
+                (true, false) => AddressRelativeTo::Base,
+                (false, true) => AddressRelativeTo::PC,
+            },
             indexed: bytes[1] & 0x80 > 0,
-            base_relative: bytes[1] & 0x40 > 0,
-            pc_relative: bytes[1] & 0x20 > 0,
             extended: bytes[1] & 0x10 > 0,
         }
     }
@@ -217,7 +234,7 @@ impl Op {
             }));
         }
 
-        if let Some(var) = FromPrimitive::from_u8(bytes[0]) {
+        if let Some(var) = FromPrimitive::from_u8(bytes[0] & 0xFC) {
             let address_flags = AddressFlags::from_bytes([bytes[0], bytes[1]]);
             let address = calc_address(bytes, &address_flags);
 
@@ -250,12 +267,12 @@ impl Op {
                 } else {
                     0x00
                 };
-                let b = if var.address_flags.base_relative {
+                let b = if var.address_flags.relative_to == AddressRelativeTo::Base {
                     0x40
                 } else {
                     0x00
                 };
-                let p = if var.address_flags.pc_relative {
+                let p = if var.address_flags.relative_to == AddressRelativeTo::PC {
                     0x20
                 } else {
                     0x00

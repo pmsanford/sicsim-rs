@@ -1,9 +1,12 @@
 use super::op::{
-    is_privileged, AddressFlags, OneByteOp, OneRegOp, Op, Register, ShiftOp, TwoRegOp, VariableOp,
+    is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
+    ShiftOp, TwoRegOp, VariableOp,
 };
 use super::status_word::{check_cc, set_cc, supervisor_mode};
 use crate::device::Device;
-use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
+use crate::word::{
+    f64_to_dword, i32_to_word, u32_to_dword, u32_to_word, DWord, DWordExt, Word, WordExt,
+};
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};
 
@@ -83,13 +86,52 @@ impl SicXeVm {
         }
     }
 
-    fn calc_addr(&self, address: u32, flags: &AddressFlags) -> usize {
-        let idx: usize = if flags.indexed { self.X.as_usize() } else { 0 };
-        address as usize + idx
+    fn index_addr(&self, address: u32, flags: &AddressFlags) -> u32 {
+        let idx = if flags.indexed { self.X.as_u32() } else { 0 };
+        address + idx
     }
 
-    fn word_at(&self, address: u32, flags: &AddressFlags) -> Word {
-        let address = self.calc_addr(address, flags);
+    fn calc_addr(&self, argument: u32, flags: &AddressFlags) -> u32 {
+        match flags.mode {
+            AddressMode::Compatiblity => self.index_addr(argument, flags),
+            AddressMode::Simple => match flags.relative_to {
+                AddressRelativeTo::Direct => self.index_addr(argument, flags),
+                AddressRelativeTo::Base => self.index_addr(self.B.as_u32() + argument, flags),
+                AddressRelativeTo::PC => self.index_addr(self.PC.as_u32() + argument, flags),
+            },
+            AddressMode::Immediate => match flags.relative_to {
+                AddressRelativeTo::Direct => argument,
+                AddressRelativeTo::Base => self.B.as_u32() + argument,
+                AddressRelativeTo::PC => self.PC.as_u32() + argument,
+            },
+            AddressMode::Indirect => match flags.relative_to {
+                AddressRelativeTo::Direct => self.word_at(argument).as_u32(),
+                AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument).as_u32(),
+                AddressRelativeTo::PC => self.word_at(self.PC.as_u32() + argument).as_u32(),
+            },
+        }
+    }
+
+    fn fetch_word(&self, argument: u32, flags: &AddressFlags) -> Word {
+        let address = self.calc_addr(argument, flags);
+        if flags.mode == AddressMode::Immediate {
+            u32_to_word(address)
+        } else {
+            self.word_at(address)
+        }
+    }
+
+    fn fetch_dword(&self, argument: u32, flags: &AddressFlags) -> DWord {
+        let address = self.calc_addr(argument, flags);
+        if flags.mode == AddressMode::Immediate {
+            u32_to_dword(address)
+        } else {
+            self.dword_at(address)
+        }
+    }
+
+    fn word_at(&self, address: u32) -> Word {
+        let address = address as usize;
         [
             self.memory[address],
             self.memory[address + 1],
@@ -97,15 +139,14 @@ impl SicXeVm {
         ]
     }
 
-    fn dword_at(&self, address: u32, flags: &AddressFlags) -> DWord {
-        let address = self.calc_addr(address, flags);
+    fn dword_at(&self, address: u32) -> DWord {
         [
-            self.memory[address],
-            self.memory[address + 1],
-            self.memory[address + 2],
-            self.memory[address + 3],
-            self.memory[address + 4],
-            self.memory[address + 5],
+            self.memory[address as usize],
+            self.memory[address as usize + 1],
+            self.memory[address as usize + 2],
+            self.memory[address as usize + 3],
+            self.memory[address as usize + 4],
+            self.memory[address as usize + 5],
         ]
     }
 
@@ -142,20 +183,22 @@ impl SicXeVm {
     }
 
     fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
+        //TODO: What does immediate mean here
         let address = self.calc_addr(address, flags);
-        self.memory[address] = value[0];
-        self.memory[address + 1] = value[1];
-        self.memory[address + 2] = value[2];
+        self.memory[address as usize] = value[0];
+        self.memory[address as usize + 1] = value[1];
+        self.memory[address as usize + 2] = value[2];
     }
 
     fn set_dword_at(&mut self, address: u32, flags: &AddressFlags, value: DWord) {
+        //TODO: What does immediate mean here
         let address = self.calc_addr(address, flags);
-        self.memory[address] = value[0];
-        self.memory[address + 1] = value[1];
-        self.memory[address + 2] = value[2];
-        self.memory[address + 3] = value[3];
-        self.memory[address + 4] = value[4];
-        self.memory[address + 5] = value[5];
+        self.memory[address as usize] = value[0];
+        self.memory[address as usize + 1] = value[1];
+        self.memory[address as usize + 2] = value[2];
+        self.memory[address as usize + 3] = value[3];
+        self.memory[address as usize + 4] = value[4];
+        self.memory[address as usize + 5] = value[5];
     }
 
     fn pc_address(&self) -> u32 {
@@ -163,12 +206,12 @@ impl SicXeVm {
     }
 
     fn comp(&mut self, register: Word, address: u32, flags: &AddressFlags) {
-        let memory = self.word_at(address, flags);
+        let memory = self.fetch_word(address, flags);
         set_cc(&mut self.SW, register.cmp(&memory));
     }
 
     fn compf(&mut self, register: DWord, address: u32, flags: &AddressFlags) {
-        let memory = self.dword_at(address, flags);
+        let memory = self.fetch_dword(address, flags);
         set_cc(&mut self.SW, register.cmp(&memory));
     }
 
@@ -226,51 +269,51 @@ impl SicXeVm {
                 match op.opcode {
                     // Load/store
                     VariableOp::LDA => {
-                        self.A = self.word_at(op.address, &op.address_flags);
+                        self.A = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STA => {
                         self.set_at(op.address, &op.address_flags, self.A);
                     }
                     VariableOp::LDCH => {
                         let address = self.calc_addr(op.address, &op.address_flags);
-                        self.A[2] = self.memory[address];
+                        self.A[2] = self.memory[address as usize];
                     }
                     VariableOp::STCH => {
                         let address = self.calc_addr(op.address, &op.address_flags);
-                        self.memory[address] = self.A[2];
+                        self.memory[address as usize] = self.A[2];
                     }
                     VariableOp::LDL => {
-                        self.L = self.word_at(op.address, &op.address_flags);
+                        self.L = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STL => {
                         self.set_at(op.address, &op.address_flags, self.L);
                     }
                     VariableOp::LDB => {
-                        self.B = self.word_at(op.address, &op.address_flags);
+                        self.B = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STB => {
                         self.set_at(op.address, &op.address_flags, self.B);
                     }
                     VariableOp::LDS => {
-                        self.S = self.word_at(op.address, &op.address_flags);
+                        self.S = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STS => {
                         self.set_at(op.address, &op.address_flags, self.S);
                     }
                     VariableOp::LDT => {
-                        self.T = self.word_at(op.address, &op.address_flags);
+                        self.T = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STT => {
                         self.set_at(op.address, &op.address_flags, self.T);
                     }
                     VariableOp::LDF => {
-                        self.F = self.dword_at(op.address, &op.address_flags);
+                        self.F = self.fetch_dword(op.address, &op.address_flags);
                     }
                     VariableOp::STF => {
                         self.set_dword_at(op.address, &op.address_flags, self.F);
                     }
                     VariableOp::LDX => {
-                        self.X = self.word_at(op.address, &op.address_flags);
+                        self.X = self.fetch_word(op.address, &op.address_flags);
                     }
                     VariableOp::STX => {
                         self.set_at(op.address, &op.address_flags, self.X);
@@ -281,7 +324,7 @@ impl SicXeVm {
 
                     // Bitwise
                     VariableOp::OR => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = [
                             self.A[0] | memory[0],
                             self.A[1] | memory[1],
@@ -289,7 +332,7 @@ impl SicXeVm {
                         ];
                     }
                     VariableOp::AND => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = [
                             self.A[0] & memory[0],
                             self.A[1] & memory[1],
@@ -299,35 +342,35 @@ impl SicXeVm {
 
                     // Math
                     VariableOp::ADD => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
                     }
                     VariableOp::ADDF => {
-                        let memory = self.dword_at(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() + memory.as_f64());
                     }
                     VariableOp::SUB => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
                     }
                     VariableOp::SUBF => {
-                        let memory = self.dword_at(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() - memory.as_f64());
                     }
                     VariableOp::MUL => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
                     }
                     VariableOp::MULF => {
-                        let memory = self.dword_at(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() * memory.as_f64());
                     }
                     VariableOp::DIV => {
-                        let memory = self.word_at(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
                     }
                     VariableOp::DIVF => {
-                        let memory = self.dword_at(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() / memory.as_f64());
                     }
 
@@ -587,8 +630,7 @@ mod test {
                 address_flags: AddressFlags {
                     mode: AddressMode::Compatiblity,
                     indexed: false,
-                    base_relative: false,
-                    pc_relative: false,
+                    relative_to: AddressRelativeTo::Direct,
                     extended: false,
                 },
                 address: target,
@@ -631,8 +673,7 @@ mod test {
                 address_flags: AddressFlags {
                     mode: AddressMode::Compatiblity,
                     indexed: false,
-                    base_relative: false,
-                    pc_relative: false,
+                    relative_to: AddressRelativeTo::Direct,
                     extended: false,
                 },
                 address,
@@ -662,8 +703,7 @@ mod test {
                 address_flags: AddressFlags {
                     mode: AddressMode::Compatiblity,
                     indexed: true,
-                    base_relative: false,
-                    pc_relative: false,
+                    relative_to: AddressRelativeTo::Direct,
                     extended: false,
                 },
                 address: 3,
@@ -681,16 +721,14 @@ mod test {
     static NI_FLAGS: AddressFlags = AddressFlags {
         mode: AddressMode::Compatiblity,
         indexed: false,
-        base_relative: false,
-        pc_relative: false,
+        relative_to: AddressRelativeTo::Direct,
         extended: false,
     };
 
     static I_FLAGS: AddressFlags = AddressFlags {
         mode: AddressMode::Compatiblity,
         indexed: true,
-        base_relative: false,
-        pc_relative: false,
+        relative_to: AddressRelativeTo::Direct,
         extended: false,
     };
 
@@ -701,7 +739,7 @@ mod test {
 
         vm.step();
 
-        let a_val: u32 = vm.word_at(3, &NI_FLAGS).as_u32();
+        let a_val: u32 = vm.word_at(3).as_u32();
         assert_eq!(a_val, 0xAAAA);
         assert_eq!(vm.PC[2], 3);
     }
@@ -723,7 +761,7 @@ mod test {
         vm.step();
         vm.step();
 
-        let stored: u32 = vm.word_at(102, &NI_FLAGS).as_u32();
+        let stored: u32 = vm.word_at(102).as_u32();
         assert_eq!(stored, 0xBEEF);
     }
 
@@ -741,7 +779,7 @@ mod test {
 
         vm.step();
 
-        let m_val: u32 = vm.word_at(98, &NI_FLAGS).as_u32();
+        let m_val: u32 = vm.word_at(98).as_u32();
         assert_eq!(m_val, 0xBA);
     }
 
@@ -894,7 +932,7 @@ mod test {
         vm.step();
         vm.step();
 
-        assert_eq!(vm.word_at(6, &NI_FLAGS).as_u32(), 1234);
+        assert_eq!(vm.word_at(6).as_u32(), 1234);
     }
 
     #[test]
@@ -1095,7 +1133,7 @@ mod test {
         vm.step();
         assert_eq!(vm.F.as_f64(), 21.0);
         vm.step();
-        let result = vm.dword_at(111, &AddressFlags::default()).as_f64();
+        let result = vm.dword_at(111).as_f64();
         assert_eq!(result, 21.0);
         vm.step();
         assert_eq!(check_cc(&vm.SW), Ordering::Greater);
@@ -1176,5 +1214,76 @@ mod test {
         assert_eq!(vm.A.as_u32(), 64);
         vm.step();
         assert_eq!(vm.S.as_i32(), -1);
+    }
+
+    #[test]
+    fn immediate() {
+        let mut vm = SicXeVm::empty();
+        set_op(
+            &mut vm,
+            0,
+            Op::Variable(Variable {
+                opcode: VariableOp::LDA,
+                address_flags: AddressFlags {
+                    mode: AddressMode::Immediate,
+                    relative_to: AddressRelativeTo::Direct,
+                    indexed: false,
+                    extended: false,
+                },
+                address: 50,
+            }),
+        );
+        set_op(
+            &mut vm,
+            3,
+            Op::Variable(Variable {
+                opcode: VariableOp::LDA,
+                address_flags: AddressFlags {
+                    mode: AddressMode::Immediate,
+                    relative_to: AddressRelativeTo::Base,
+                    indexed: false,
+                    extended: false,
+                },
+                address: 25,
+            }),
+        );
+        set_op(
+            &mut vm,
+            6,
+            Op::Variable(Variable {
+                opcode: VariableOp::LDA,
+                address_flags: AddressFlags {
+                    mode: AddressMode::Immediate,
+                    relative_to: AddressRelativeTo::Base,
+                    indexed: false,
+                    extended: false,
+                },
+                address: 25,
+            }),
+        );
+        set_op(
+            &mut vm,
+            9,
+            Op::Variable(Variable {
+                opcode: VariableOp::LDA,
+                address_flags: AddressFlags {
+                    mode: AddressMode::Immediate,
+                    relative_to: AddressRelativeTo::PC,
+                    indexed: false,
+                    extended: false,
+                },
+                address: 25,
+            }),
+        );
+        vm.step();
+        assert_eq!(vm.A.as_u32(), 50);
+        vm.step();
+        assert_eq!(vm.A.as_u32(), 25);
+        vm.B = u32_to_word(50);
+        vm.step();
+        assert_eq!(vm.A.as_u32(), 75);
+        vm.step();
+        // PC-rel is relative to PC *after* increment
+        assert_eq!(vm.A.as_u32(), 37);
     }
 }

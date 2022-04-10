@@ -103,6 +103,11 @@ fn frac_to_binary(fraction: f64) -> u64 {
     binary
 }
 
+pub fn u32_to_dword(v: u32) -> DWord {
+    let [a, b, c, d] = v.to_be_bytes();
+    [0, 0, a, b, c, d]
+}
+
 pub fn i16_to_exponent(i: i16) -> [u8; 2] {
     let [exp_u, exp_l] = (i + 1024).to_be_bytes();
     [exp_u & 0x7F, exp_l << 4]

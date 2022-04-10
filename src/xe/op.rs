@@ -1,7 +1,7 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-#[derive(FromPrimitive, Debug, Clone, Copy)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneByteOp {
     FIX = 0xC4,
     FLOAT = 0xC0,
@@ -13,13 +13,13 @@ pub enum OneByteOp {
     TIO = 0xF8,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OneRegOp {
     CLEAR = 0xB4,
     TIXR = 0xB8,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TwoRegOp {
     ADDR = 0x90,
     DIVR = 0x9C,
@@ -30,7 +30,7 @@ pub enum TwoRegOp {
     SUBR = 0x94,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShiftOp {
     SHIFTL = 0xA4,
     SHIFTR = 0xA8,
@@ -334,7 +334,7 @@ pub fn is_privileged(op: &Op) -> bool {
     }
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VariableOp {
     ADD = 0x18,
     ADDF = 0x58,

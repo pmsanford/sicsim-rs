@@ -37,6 +37,14 @@ impl Debug for SicXeVm {
     }
 }
 
+fn simple_addr_signed(addr: u32) -> i32 {
+    if addr & 0x0800 == 0 {
+        addr as i32
+    } else {
+        (addr | 0xFFFFF800) as i32
+    }
+}
+
 impl SicXeVm {
     pub fn empty() -> Self {
         Self {
@@ -97,17 +105,17 @@ impl SicXeVm {
             AddressMode::Simple => match flags.relative_to {
                 AddressRelativeTo::Direct => self.index_addr(argument, flags),
                 AddressRelativeTo::Base => self.index_addr(self.B.as_u32() + argument, flags),
-                AddressRelativeTo::PC => self.index_addr(self.PC.as_u32() + argument, flags),
+                AddressRelativeTo::PC => self.index_addr((self.PC.as_i32() + simple_addr_signed(argument)) as u32, flags),
             },
             AddressMode::Immediate => match flags.relative_to {
                 AddressRelativeTo::Direct => argument,
                 AddressRelativeTo::Base => self.B.as_u32() + argument,
-                AddressRelativeTo::PC => self.PC.as_u32() + argument,
+                AddressRelativeTo::PC => (self.PC.as_i32() + simple_addr_signed(argument)) as u32,
             },
             AddressMode::Indirect => match flags.relative_to {
                 AddressRelativeTo::Direct => self.word_at(argument).as_u32(),
                 AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument).as_u32(),
-                AddressRelativeTo::PC => self.word_at(self.PC.as_u32() + argument).as_u32(),
+                AddressRelativeTo::PC => self.word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32).as_u32(),
             },
         }
     }
@@ -1275,6 +1283,20 @@ mod test {
                 address: 25,
             }),
         );
+        set_op(
+            &mut vm,
+            12,
+            Op::Variable(Variable {
+                opcode: VariableOp::LDA,
+                address_flags: AddressFlags {
+                    mode: AddressMode::Simple,
+                    relative_to: AddressRelativeTo::PC,
+                    indexed: false,
+                    extended: false,
+                },
+                address: (-6i32) as u32
+            }),
+        );
         vm.step();
         assert_eq!(vm.A.as_u32(), 50);
         vm.step();
@@ -1283,7 +1305,10 @@ mod test {
         vm.step();
         assert_eq!(vm.A.as_u32(), 75);
         vm.step();
-        // PC-rel is relative to PC *after* increment
+        // PC-rel is relative to PC *after* increment, p59
         assert_eq!(vm.A.as_u32(), 37);
+        vm.step();
+        // PC-rel is relative to PC *after* increment, p59
+        assert_eq!(vm.A.as_u32(), 73753);
     }
 }

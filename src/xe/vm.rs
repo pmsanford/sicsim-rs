@@ -1,4 +1,4 @@
-use super::op::{AddressFlags, OneByteOps, Op, Register, ShiftOps, TwoByteOps, VariableOps};
+use super::op::{AddressFlags, OneByteOp, OneRegOp, Op, Register, ShiftOp, TwoRegOp, VariableOp};
 use crate::device::Device;
 use crate::word::{f64_to_dword, i32_to_word, u32_to_word, DWord, DWordExt, Word, WordExt};
 use std::cmp::Ordering;
@@ -237,62 +237,62 @@ impl SicXeVm {
             Some(Op::Variable(op)) => {
                 match op.opcode {
                     // Load/store
-                    VariableOps::LDA => {
+                    VariableOp::LDA => {
                         self.A = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STA => {
+                    VariableOp::STA => {
                         self.set_at(op.address, &op.address_flags, self.A);
                     }
-                    VariableOps::LDCH => {
+                    VariableOp::LDCH => {
                         let address = self.calc_addr(op.address, &op.address_flags);
                         self.A[2] = self.memory[address];
                     }
-                    VariableOps::STCH => {
+                    VariableOp::STCH => {
                         let address = self.calc_addr(op.address, &op.address_flags);
                         self.memory[address] = self.A[2];
                     }
-                    VariableOps::LDL => {
+                    VariableOp::LDL => {
                         self.L = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STL => {
+                    VariableOp::STL => {
                         self.set_at(op.address, &op.address_flags, self.L);
                     }
-                    VariableOps::LDB => {
+                    VariableOp::LDB => {
                         self.B = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STB => {
+                    VariableOp::STB => {
                         self.set_at(op.address, &op.address_flags, self.B);
                     }
-                    VariableOps::LDS => {
+                    VariableOp::LDS => {
                         self.S = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STS => {
+                    VariableOp::STS => {
                         self.set_at(op.address, &op.address_flags, self.S);
                     }
-                    VariableOps::LDT => {
+                    VariableOp::LDT => {
                         self.T = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STT => {
+                    VariableOp::STT => {
                         self.set_at(op.address, &op.address_flags, self.T);
                     }
-                    VariableOps::LDF => {
+                    VariableOp::LDF => {
                         self.F = self.dword_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STF => {
+                    VariableOp::STF => {
                         self.set_dword_at(op.address, &op.address_flags, self.F);
                     }
-                    VariableOps::LDX => {
+                    VariableOp::LDX => {
                         self.X = self.word_at(op.address, &op.address_flags);
                     }
-                    VariableOps::STX => {
+                    VariableOp::STX => {
                         self.set_at(op.address, &op.address_flags, self.X);
                     }
-                    VariableOps::STSW => {
+                    VariableOp::STSW => {
                         self.set_at(op.address, &op.address_flags, self.SW);
                     }
 
                     // Bitwise
-                    VariableOps::OR => {
+                    VariableOp::OR => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = [
                             self.A[0] | memory[0],
@@ -300,7 +300,7 @@ impl SicXeVm {
                             self.A[2] | memory[2],
                         ];
                     }
-                    VariableOps::AND => {
+                    VariableOp::AND => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = [
                             self.A[0] & memory[0],
@@ -310,88 +310,88 @@ impl SicXeVm {
                     }
 
                     // Math
-                    VariableOps::ADD => {
+                    VariableOp::ADD => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
                     }
-                    VariableOps::ADDF => {
+                    VariableOp::ADDF => {
                         let memory = self.dword_at(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() + memory.as_f64());
                     }
-                    VariableOps::SUB => {
+                    VariableOp::SUB => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
                     }
-                    VariableOps::SUBF => {
+                    VariableOp::SUBF => {
                         let memory = self.dword_at(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() - memory.as_f64());
                     }
-                    VariableOps::MUL => {
+                    VariableOp::MUL => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
                     }
-                    VariableOps::MULF => {
+                    VariableOp::MULF => {
                         let memory = self.dword_at(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() * memory.as_f64());
                     }
-                    VariableOps::DIV => {
+                    VariableOp::DIV => {
                         let memory = self.word_at(op.address, &op.address_flags);
                         self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
                     }
-                    VariableOps::DIVF => {
+                    VariableOp::DIVF => {
                         let memory = self.dword_at(op.address, &op.address_flags);
                         self.F = f64_to_dword(self.F.as_f64() / memory.as_f64());
                     }
 
                     // Comp
-                    VariableOps::COMP => {
+                    VariableOp::COMP => {
                         self.comp(self.A, op.address, &op.address_flags);
                     }
-                    VariableOps::COMPF => {
+                    VariableOp::COMPF => {
                         self.compf(self.F, op.address, &op.address_flags);
                     }
 
                     // Jumps
-                    VariableOps::J => {
+                    VariableOp::J => {
                         self.PC = u32_to_word(op.address);
                     }
-                    VariableOps::JLT => {
+                    VariableOp::JLT => {
                         if check_cc(&self.SW) == Ordering::Less {
                             self.PC = u32_to_word(op.address);
                         }
                     }
-                    VariableOps::JEQ => {
+                    VariableOp::JEQ => {
                         if check_cc(&self.SW) == Ordering::Equal {
                             self.PC = u32_to_word(op.address);
                         }
                     }
-                    VariableOps::JGT => {
+                    VariableOp::JGT => {
                         if check_cc(&self.SW) == Ordering::Greater {
                             self.PC = u32_to_word(op.address);
                         }
                     }
 
                     // Subroutines
-                    VariableOps::JSUB => {
+                    VariableOp::JSUB => {
                         self.L = self.PC;
                         self.PC = u32_to_word(op.address);
                     }
-                    VariableOps::RSUB => {
+                    VariableOp::RSUB => {
                         self.PC = self.L;
                     }
 
                     // Index
-                    VariableOps::TIX => {
+                    VariableOp::TIX => {
                         self.X = u32_to_word(self.X.as_u32() + 1);
                         self.comp(self.X, op.address, &op.address_flags);
                     }
 
                     // Devices
-                    VariableOps::RD => {
+                    VariableOp::RD => {
                         let device_id = self.memory[op.address as usize];
                         self.A[2] = self.read_device(device_id);
                     }
-                    VariableOps::TD => {
+                    VariableOp::TD => {
                         let device_id = self.memory[op.address as usize];
                         if self.test_device(device_id) {
                             set_cc(&mut self.SW, Ordering::Less);
@@ -399,100 +399,102 @@ impl SicXeVm {
                             set_cc(&mut self.SW, Ordering::Equal);
                         }
                     }
-                    VariableOps::WD => {
+                    VariableOp::WD => {
                         let device_id = self.memory[op.address as usize];
                         self.write_device(device_id, self.A[2]);
                     }
 
                     // System
-                    VariableOps::SSK => todo!(),
-                    VariableOps::LPS => todo!(),
-                    VariableOps::STI => todo!(),
+                    VariableOp::SSK => todo!(),
+                    VariableOp::LPS => todo!(),
+                    VariableOp::STI => todo!(),
                 }
             }
             Some(Op::OneByte(opcode)) => match opcode {
-                OneByteOps::FIX => {
+                OneByteOp::FIX => {
                     let float = self.F.as_f64();
                     self.A = i32_to_word(float as i32);
                 }
-                OneByteOps::FLOAT => {
+                OneByteOp::FLOAT => {
                     let int = self.A.as_i32();
                     self.F = f64_to_dword(int as f64);
                 }
-                OneByteOps::HIO => todo!(),
-                OneByteOps::NORM => {
+                OneByteOp::HIO => todo!(),
+                OneByteOp::NORM => {
                     // NB: The only way this does anything is if the floats
                     // are manipulated outside of the floating point
                     // instructions - they always produce normalized floats
                     let f = self.F.as_f64();
                     self.F = f64_to_dword(f);
                 }
-                OneByteOps::SIO => todo!(),
-                OneByteOps::TIO => todo!(),
+                OneByteOp::SIO => todo!(),
+                OneByteOp::TIO => todo!(),
             },
-            Some(Op::TwoByte(two_byte)) => match two_byte.opcode {
-                TwoByteOps::ADDR => {
-                    self.set_register(
-                        &two_byte.r2,
-                        u32_to_word(
-                            self.get_register(&two_byte.r2).as_u32()
-                                + self.get_register(&two_byte.r1).as_u32(),
-                        ),
-                    );
+            Some(Op::OneReg(one_reg)) => match one_reg.opcode {
+                OneRegOp::CLEAR => {
+                    self.set_register(&one_reg.r1, u32_to_word(0));
                 }
-                TwoByteOps::CLEAR => {
-                    self.set_register(&two_byte.r1, u32_to_word(0));
-                }
-                TwoByteOps::DIVR => {
-                    self.set_register(
-                        &two_byte.r2,
-                        u32_to_word(
-                            self.get_register(&two_byte.r2).as_u32()
-                                / self.get_register(&two_byte.r1).as_u32(),
-                        ),
-                    );
-                }
-                TwoByteOps::MULR => {
-                    self.set_register(
-                        &two_byte.r2,
-                        u32_to_word(
-                            self.get_register(&two_byte.r2).as_u32()
-                                * self.get_register(&two_byte.r1).as_u32(),
-                        ),
-                    );
-                }
-                TwoByteOps::RMO => {
-                    self.set_register(&two_byte.r2, self.get_register(&two_byte.r1));
-                }
-                TwoByteOps::SUBR => {
-                    self.set_register(
-                        &two_byte.r2,
-                        u32_to_word(
-                            self.get_register(&two_byte.r2).as_u32()
-                                - self.get_register(&two_byte.r1).as_u32(),
-                        ),
-                    );
-                }
-                TwoByteOps::SVC => todo!(),
-                TwoByteOps::TIXR => {
+                OneRegOp::TIXR => {
                     self.X = u32_to_word(self.X.as_u32() + 1);
-                    self.compr(&Register::X, &two_byte.r1);
+                    self.compr(&Register::X, &one_reg.r1);
+                }
+            },
+            Some(Op::TwoReg(two_reg)) => match two_reg.opcode {
+                TwoRegOp::ADDR => {
+                    self.set_register(
+                        &two_reg.r2,
+                        u32_to_word(
+                            self.get_register(&two_reg.r2).as_u32()
+                                + self.get_register(&two_reg.r1).as_u32(),
+                        ),
+                    );
+                }
+                TwoRegOp::DIVR => {
+                    self.set_register(
+                        &two_reg.r2,
+                        u32_to_word(
+                            self.get_register(&two_reg.r2).as_u32()
+                                / self.get_register(&two_reg.r1).as_u32(),
+                        ),
+                    );
+                }
+                TwoRegOp::MULR => {
+                    self.set_register(
+                        &two_reg.r2,
+                        u32_to_word(
+                            self.get_register(&two_reg.r2).as_u32()
+                                * self.get_register(&two_reg.r1).as_u32(),
+                        ),
+                    );
+                }
+                TwoRegOp::RMO => {
+                    self.set_register(&two_reg.r2, self.get_register(&two_reg.r1));
+                }
+                TwoRegOp::SUBR => {
+                    self.set_register(
+                        &two_reg.r2,
+                        u32_to_word(
+                            self.get_register(&two_reg.r2).as_u32()
+                                - self.get_register(&two_reg.r1).as_u32(),
+                        ),
+                    );
                 }
             },
             Some(Op::Shift(shift)) => match shift.opcode {
-                ShiftOps::SHIFTL => {
+                ShiftOp::SHIFTL => {
                     self.set_register(
                         &shift.r1,
                         circular_shiftl(self.get_register(&shift.r1), shift.n + 1),
                     );
                 }
-                ShiftOps::SHIFTR => {
+                ShiftOp::SHIFTR => {
                     self.set_register(
                         &shift.r1,
                         filling_shiftr(self.get_register(&shift.r1), shift.n + 1),
                     );
                 }
             },
+            Some(Op::Svc(_n)) => todo!(),
             None => {}
         }
     }
@@ -534,7 +536,7 @@ mod test {
 
     use crate::{
         word::i16_to_exponent,
-        xe::op::{AddressMode, Register, Shift, TwoByte, TwoByteOps, Variable},
+        xe::op::{AddressMode, OneReg, OneRegOp, Register, Shift, TwoReg, TwoRegOp, Variable},
     };
 
     use super::*;
@@ -585,7 +587,7 @@ mod test {
         vm.memory[address + 2] = word[2];
     }
 
-    fn ni_op(vm: &mut SicXeVm, address: usize, opcode: VariableOps, target: u32) {
+    fn ni_op(vm: &mut SicXeVm, address: usize, opcode: VariableOp, target: u32) {
         set_op(
             vm,
             address,
@@ -614,17 +616,21 @@ mod test {
         );
     }
 
-    fn reg_op(vm: &mut SicXeVm, address: usize, opcode: TwoByteOps, r1: Register, r2: Register) {
-        set_op(vm, address, Op::TwoByte(TwoByte { opcode, r1, r2 }));
+    fn two_reg_op(vm: &mut SicXeVm, address: usize, opcode: TwoRegOp, r1: Register, r2: Register) {
+        set_op(vm, address, Op::TwoReg(TwoReg { opcode, r1, r2 }));
     }
 
-    fn setup_two_op(opcode: TwoByteOps, r1: Register, r2: Register) -> SicXeVm {
+    fn one_reg_op(vm: &mut SicXeVm, address: usize, opcode: OneRegOp, r1: Register) {
+        set_op(vm, address, Op::OneReg(OneReg { opcode, r1 }));
+    }
+
+    fn setup_two_op(opcode: TwoRegOp, r1: Register, r2: Register) -> SicXeVm {
         let mut vm = SicXeVm::empty();
-        set_op(&mut vm, 0, Op::TwoByte(TwoByte { opcode, r1, r2 }));
+        set_op(&mut vm, 0, Op::TwoReg(TwoReg { opcode, r1, r2 }));
         vm
     }
 
-    fn setup_var_op(opcode: VariableOps, address: u32) -> SicXeVm {
+    fn setup_var_op(opcode: VariableOp, address: u32) -> SicXeVm {
         let mut vm = SicXeVm::empty();
         set_op(
             &mut vm,
@@ -646,7 +652,7 @@ mod test {
 
     #[test]
     fn lda() {
-        let mut vm = setup_var_op(VariableOps::LDA, 3);
+        let mut vm = setup_var_op(VariableOp::LDA, 3);
         set_int(&mut vm, 3, 0xAB);
 
         vm.step();
@@ -661,7 +667,7 @@ mod test {
             &mut vm,
             0,
             Op::Variable(Variable {
-                opcode: VariableOps::LDA,
+                opcode: VariableOp::LDA,
                 address_flags: AddressFlags {
                     mode: AddressMode::Compatiblity,
                     indexed: true,
@@ -699,7 +705,7 @@ mod test {
 
     #[test]
     fn sta() {
-        let mut vm = setup_var_op(VariableOps::STA, 3);
+        let mut vm = setup_var_op(VariableOp::STA, 3);
         vm.A = u32_to_word(0xAAAA);
 
         vm.step();
@@ -711,12 +717,12 @@ mod test {
 
     #[test]
     fn load_store() {
-        let mut vm = setup_var_op(VariableOps::LDA, 99);
+        let mut vm = setup_var_op(VariableOp::LDA, 99);
         set_op(
             &mut vm,
             3,
             Op::Variable(Variable {
-                opcode: VariableOps::STA,
+                opcode: VariableOp::STA,
                 address_flags: NI_FLAGS.clone(),
                 address: 102,
             }),
@@ -732,14 +738,14 @@ mod test {
 
     #[test]
     fn ch() {
-        let mut vm = setup_var_op(VariableOps::LDCH, 100);
+        let mut vm = setup_var_op(VariableOp::LDCH, 100);
         set_int(&mut vm, 99, 0xBE00);
 
         vm.step();
 
         let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0xBE);
-        let mut vm = setup_var_op(VariableOps::STCH, 100);
+        let mut vm = setup_var_op(VariableOp::STCH, 100);
         vm.A = u32_to_word(0xBA);
 
         vm.step();
@@ -750,7 +756,7 @@ mod test {
 
     #[test]
     fn bitwise() {
-        let mut vm = setup_var_op(VariableOps::OR, 99);
+        let mut vm = setup_var_op(VariableOp::OR, 99);
         set_int(&mut vm, 99, 0x8181);
         vm.A = u32_to_word(0x1818);
 
@@ -759,7 +765,7 @@ mod test {
         let a_val: u32 = vm.A.as_u32();
         assert_eq!(a_val, 0x9999);
 
-        let mut vm = setup_var_op(VariableOps::AND, 99);
+        let mut vm = setup_var_op(VariableOp::AND, 99);
         set_int(&mut vm, 99, 0x8181);
         vm.A = u32_to_word(0xFFFF);
 
@@ -771,7 +777,7 @@ mod test {
 
     #[test]
     fn overflow() {
-        let mut vm = setup_var_op(VariableOps::ADD, 99);
+        let mut vm = setup_var_op(VariableOp::ADD, 99);
         set_int(&mut vm, 99, 0xFF_FF_FF);
         vm.A = u32_to_word(1);
 
@@ -781,7 +787,7 @@ mod test {
 
     #[test]
     fn math() {
-        let mut vm = setup_var_op(VariableOps::ADD, 99);
+        let mut vm = setup_var_op(VariableOp::ADD, 99);
         set_int(&mut vm, 99, (-32 as i32) as u32);
         vm.A = u32_to_word(32);
 
@@ -796,7 +802,7 @@ mod test {
         vm.step();
         assert_eq!(vm.A.as_i32(), 32);
 
-        let mut vm = setup_var_op(VariableOps::SUB, 99);
+        let mut vm = setup_var_op(VariableOp::SUB, 99);
         set_int(&mut vm, 99, 10);
         vm.A = u32_to_word(5);
 
@@ -804,7 +810,7 @@ mod test {
 
         assert_eq!(vm.A.as_i32(), -5);
 
-        let mut vm = setup_var_op(VariableOps::MUL, 99);
+        let mut vm = setup_var_op(VariableOp::MUL, 99);
         set_int(&mut vm, 99, 10);
         vm.A = u32_to_word(5);
 
@@ -812,7 +818,7 @@ mod test {
 
         assert_eq!(vm.A.as_i32(), 50);
 
-        let mut vm = setup_var_op(VariableOps::DIV, 99);
+        let mut vm = setup_var_op(VariableOp::DIV, 99);
         set_int(&mut vm, 99, 5);
         vm.A = u32_to_word(10);
 
@@ -823,9 +829,9 @@ mod test {
 
     #[test]
     fn jumps() {
-        let mut vm = setup_var_op(VariableOps::J, 33);
+        let mut vm = setup_var_op(VariableOp::J, 33);
         set_int(&mut vm, 99, 33);
-        ni_op(&mut vm, 33, VariableOps::LDA, 99);
+        ni_op(&mut vm, 33, VariableOp::LDA, 99);
 
         vm.step();
         vm.step();
@@ -833,8 +839,8 @@ mod test {
         assert_eq!(vm.A.as_u32(), 33);
 
         // Comp JEQ EQ
-        let mut vm = setup_var_op(VariableOps::COMP, 99);
-        ni_op(&mut vm, 3, VariableOps::JEQ, 33);
+        let mut vm = setup_var_op(VariableOp::COMP, 99);
+        ni_op(&mut vm, 3, VariableOp::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 33);
         vm.step();
@@ -843,8 +849,8 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 33);
 
         // Comp JEQ LT
-        let mut vm = setup_var_op(VariableOps::COMP, 99);
-        ni_op(&mut vm, 3, VariableOps::JEQ, 33);
+        let mut vm = setup_var_op(VariableOp::COMP, 99);
+        ni_op(&mut vm, 3, VariableOp::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
         vm.step();
@@ -853,8 +859,8 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 6);
 
         // Comp JEQ GT
-        let mut vm = setup_var_op(VariableOps::COMP, 99);
-        ni_op(&mut vm, 3, VariableOps::JEQ, 33);
+        let mut vm = setup_var_op(VariableOp::COMP, 99);
+        ni_op(&mut vm, 3, VariableOp::JEQ, 33);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
         vm.step();
@@ -863,8 +869,8 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 6);
 
         // Comp JLT
-        let mut vm = setup_var_op(VariableOps::COMP, 99);
-        ni_op(&mut vm, 3, VariableOps::JLT, 34);
+        let mut vm = setup_var_op(VariableOp::COMP, 99);
+        ni_op(&mut vm, 3, VariableOp::JLT, 34);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 34);
         vm.step();
@@ -873,8 +879,8 @@ mod test {
         assert_eq!(vm.PC.as_u32(), 34);
 
         // Comp JGT
-        let mut vm = setup_var_op(VariableOps::COMP, 99);
-        ni_op(&mut vm, 3, VariableOps::JGT, 32);
+        let mut vm = setup_var_op(VariableOp::COMP, 99);
+        ni_op(&mut vm, 3, VariableOp::JGT, 32);
         vm.A = u32_to_word(33);
         set_int(&mut vm, 99, 32);
         vm.step();
@@ -885,10 +891,10 @@ mod test {
 
     #[test]
     fn subroutines() {
-        let mut vm = setup_var_op(VariableOps::JSUB, 99);
-        ni_op(&mut vm, 99, VariableOps::LDA, 199);
-        ni_op(&mut vm, 102, VariableOps::RSUB, 0);
-        ni_op(&mut vm, 3, VariableOps::STA, 6);
+        let mut vm = setup_var_op(VariableOp::JSUB, 99);
+        ni_op(&mut vm, 99, VariableOp::LDA, 199);
+        ni_op(&mut vm, 102, VariableOp::RSUB, 0);
+        ni_op(&mut vm, 3, VariableOp::STA, 6);
         set_int(&mut vm, 199, 1234);
         set_int(&mut vm, 9, 99);
 
@@ -907,15 +913,15 @@ mod test {
             &mut vm,
             0,
             Op::Variable(Variable {
-                opcode: VariableOps::ADD,
+                opcode: VariableOp::ADD,
                 address_flags: I_FLAGS.clone(),
                 address: 99,
             }),
         );
-        ni_op(&mut vm, 3, VariableOps::TIX, 96);
-        ni_op(&mut vm, 6, VariableOps::TIX, 96);
-        ni_op(&mut vm, 9, VariableOps::TIX, 96);
-        ni_op(&mut vm, 12, VariableOps::JLT, 0);
+        ni_op(&mut vm, 3, VariableOp::TIX, 96);
+        ni_op(&mut vm, 6, VariableOp::TIX, 96);
+        ni_op(&mut vm, 9, VariableOp::TIX, 96);
+        ni_op(&mut vm, 12, VariableOp::JLT, 0);
         set_int(&mut vm, 93, 0);
         set_int(&mut vm, 96, 15);
         set_int(&mut vm, 99, 1);
@@ -1008,7 +1014,7 @@ mod test {
 
     #[test]
     fn devices() {
-        let mut vm = setup_var_op(VariableOps::TD, 99);
+        let mut vm = setup_var_op(VariableOp::TD, 99);
         let write_buf = Rc::new(RefCell::new(Vec::new()));
         vm.devices.insert(
             1,
@@ -1022,16 +1028,16 @@ mod test {
         vm.memory[99] = 1;
         set_int(&mut vm, 108, 5);
         set_int(&mut vm, 206, 1234);
-        ni_op(&mut vm, 3, VariableOps::JLT, 9);
-        ni_op(&mut vm, 6, VariableOps::J, 0);
-        ni_op(&mut vm, 9, VariableOps::RD, 99);
-        ni_op(&mut vm, 12, VariableOps::TD, 99);
-        ni_op(&mut vm, 15, VariableOps::JLT, 21);
-        ni_op(&mut vm, 18, VariableOps::J, 12);
-        ni_op(&mut vm, 21, VariableOps::WD, 99);
-        ni_op(&mut vm, 24, VariableOps::TIX, 108);
-        ni_op(&mut vm, 27, VariableOps::JLT, 0);
-        ni_op(&mut vm, 30, VariableOps::LDA, 206);
+        ni_op(&mut vm, 3, VariableOp::JLT, 9);
+        ni_op(&mut vm, 6, VariableOp::J, 0);
+        ni_op(&mut vm, 9, VariableOp::RD, 99);
+        ni_op(&mut vm, 12, VariableOp::TD, 99);
+        ni_op(&mut vm, 15, VariableOp::JLT, 21);
+        ni_op(&mut vm, 18, VariableOp::J, 12);
+        ni_op(&mut vm, 21, VariableOp::WD, 99);
+        ni_op(&mut vm, 24, VariableOp::TIX, 108);
+        ni_op(&mut vm, 27, VariableOp::JLT, 0);
+        ni_op(&mut vm, 30, VariableOp::LDA, 206);
 
         vm.step();
         vm.step();
@@ -1077,15 +1083,15 @@ mod test {
 
     #[test]
     fn floats() {
-        let mut vm = setup_var_op(VariableOps::LDF, 99);
-        ni_op(&mut vm, 3, VariableOps::ADDF, 99);
-        ni_op(&mut vm, 6, VariableOps::MULF, 105);
-        ni_op(&mut vm, 9, VariableOps::DIVF, 105);
-        ni_op(&mut vm, 12, VariableOps::STF, 111);
-        ni_op(&mut vm, 15, VariableOps::COMPF, 105);
-        set_op(&mut vm, 18, Op::OneByte(OneByteOps::FIX));
-        set_op(&mut vm, 21, Op::OneByte(OneByteOps::FLOAT));
-        set_op(&mut vm, 24, Op::OneByte(OneByteOps::NORM));
+        let mut vm = setup_var_op(VariableOp::LDF, 99);
+        ni_op(&mut vm, 3, VariableOp::ADDF, 99);
+        ni_op(&mut vm, 6, VariableOp::MULF, 105);
+        ni_op(&mut vm, 9, VariableOp::DIVF, 105);
+        ni_op(&mut vm, 12, VariableOp::STF, 111);
+        ni_op(&mut vm, 15, VariableOp::COMPF, 105);
+        set_op(&mut vm, 18, Op::OneByte(OneByteOp::FIX));
+        set_op(&mut vm, 21, Op::OneByte(OneByteOp::FLOAT));
+        set_op(&mut vm, 24, Op::OneByte(OneByteOp::NORM));
         set_float(&mut vm, 99, 10.5);
         set_float(&mut vm, 105, 2.5);
         vm.step();
@@ -1116,16 +1122,16 @@ mod test {
 
     #[test]
     fn register_ops() {
-        let mut vm = setup_two_op(TwoByteOps::ADDR, Register::A, Register::S);
+        let mut vm = setup_two_op(TwoRegOp::ADDR, Register::A, Register::S);
         vm.A = u32_to_word(1);
         vm.S = u32_to_word(1);
-        reg_op(&mut vm, 3, TwoByteOps::CLEAR, Register::S, Register::A);
-        reg_op(&mut vm, 6, TwoByteOps::DIVR, Register::A, Register::S);
-        reg_op(&mut vm, 9, TwoByteOps::MULR, Register::A, Register::S);
-        reg_op(&mut vm, 12, TwoByteOps::RMO, Register::A, Register::S);
-        reg_op(&mut vm, 15, TwoByteOps::SUBR, Register::A, Register::S);
-        reg_op(&mut vm, 18, TwoByteOps::TIXR, Register::A, Register::S);
-        reg_op(&mut vm, 21, TwoByteOps::TIXR, Register::A, Register::S);
+        one_reg_op(&mut vm, 3, OneRegOp::CLEAR, Register::S);
+        two_reg_op(&mut vm, 6, TwoRegOp::DIVR, Register::A, Register::S);
+        two_reg_op(&mut vm, 9, TwoRegOp::MULR, Register::A, Register::S);
+        two_reg_op(&mut vm, 12, TwoRegOp::RMO, Register::A, Register::S);
+        two_reg_op(&mut vm, 15, TwoRegOp::SUBR, Register::A, Register::S);
+        one_reg_op(&mut vm, 18, OneRegOp::TIXR, Register::A);
+        one_reg_op(&mut vm, 21, OneRegOp::TIXR, Register::A);
         vm.step();
         assert_eq!(vm.S.as_u32(), 2);
         vm.step();
@@ -1158,7 +1164,7 @@ mod test {
             &mut vm,
             0,
             Op::Shift(Shift {
-                opcode: ShiftOps::SHIFTL,
+                opcode: ShiftOp::SHIFTL,
                 r1: Register::A,
                 n: 1, // = n - 1
             }),
@@ -1167,7 +1173,7 @@ mod test {
             &mut vm,
             3,
             Op::Shift(Shift {
-                opcode: ShiftOps::SHIFTR,
+                opcode: ShiftOp::SHIFTR,
                 r1: Register::S,
                 n: 1, // = n -1
             }),

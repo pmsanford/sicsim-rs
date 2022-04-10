@@ -2,7 +2,7 @@ use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
-pub enum OneByteOps {
+pub enum OneByteOp {
     FIX = 0xC4,
     FLOAT = 0xC0,
     HIO = 0xF4,
@@ -14,21 +14,24 @@ pub enum OneByteOps {
 }
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
-pub enum TwoByteOps {
-    ADDR = 0x90,
+pub enum OneRegOp {
     CLEAR = 0xB4,
+    TIXR = 0xB8,
+}
+
+#[derive(FromPrimitive, Debug, Clone, Copy)]
+pub enum TwoRegOp {
+    ADDR = 0x90,
     DIVR = 0x9C,
 
     MULR = 0x98,
     RMO = 0xAC,
 
     SUBR = 0x94,
-    SVC = 0xB0,
-    TIXR = 0xB8,
 }
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
-pub enum ShiftOps {
+pub enum ShiftOp {
     SHIFTL = 0xA4,
     SHIFTR = 0xA8,
 }
@@ -62,15 +65,21 @@ impl Register {
 }
 
 #[derive(Debug)]
-pub struct TwoByte {
-    pub opcode: TwoByteOps,
+pub struct TwoReg {
+    pub opcode: TwoRegOp,
     pub r1: Register,
     pub r2: Register,
 }
 
 #[derive(Debug)]
+pub struct OneReg {
+    pub opcode: OneRegOp,
+    pub r1: Register,
+}
+
+#[derive(Debug)]
 pub struct Shift {
-    pub opcode: ShiftOps,
+    pub opcode: ShiftOp,
     pub r1: Register,
     pub n: u8,
 }
@@ -124,16 +133,20 @@ impl AddressMode {
 
 #[derive(Debug)]
 pub struct Variable {
-    pub opcode: VariableOps,
+    pub opcode: VariableOp,
     pub address_flags: AddressFlags,
     pub address: u32,
 }
 
+const SVC: u8 = 0xB0;
+
 #[derive(Debug)]
 pub enum Op {
-    OneByte(OneByteOps),
-    TwoByte(TwoByte),
+    OneByte(OneByteOp),
+    OneReg(OneReg),
+    TwoReg(TwoReg),
     Shift(Shift),
+    Svc(u8),
     Variable(Variable),
 }
 
@@ -154,12 +167,22 @@ fn calc_address(bytes: [u8; 4], flags: &AddressFlags) -> u32 {
 
 impl Op {
     pub fn from_bytes(bytes: [u8; 4]) -> Option<Self> {
+        if bytes[0] == SVC {
+            return Some(Self::Svc(bytes[1] & 0xF0));
+        }
         if let Some(one) = FromPrimitive::from_u8(bytes[0]) {
             return Some(Self::OneByte(one));
         }
 
+        if let Some(one_reg) = FromPrimitive::from_u8(bytes[0]) {
+            return Some(Self::OneReg(OneReg {
+                opcode: one_reg,
+                r1: Register::from_r1(bytes[1])?,
+            }));
+        }
+
         if let Some(two) = FromPrimitive::from_u8(bytes[0]) {
-            return Some(Self::TwoByte(TwoByte {
+            return Some(Self::TwoReg(TwoReg {
                 opcode: two,
                 r1: Register::from_r1(bytes[1])?,
                 r2: Register::from_r2(bytes[1])?,
@@ -191,13 +214,15 @@ impl Op {
     pub fn to_bytes(&self) -> [u8; 4] {
         match self {
             Op::OneByte(opcode) => [*opcode as u8, 0, 0, 0],
-            Op::TwoByte(tb) => [tb.opcode as u8, tb.r1.r1_with(&tb.r2), 0, 0],
+            Op::OneReg(or) => [or.opcode as u8, or.r1.r1_with(&Register::A), 0, 0],
+            Op::TwoReg(tb) => [tb.opcode as u8, tb.r1.r1_with(&tb.r2), 0, 0],
             Op::Shift(shift) => [
                 shift.opcode as u8,
                 ((shift.r1 as u8) << 4) + (shift.n & 0x0F),
                 0,
                 0,
             ],
+            Op::Svc(n) => [SVC, n & 0xF0, 0, 0],
             Op::Variable(var) => {
                 let opcode = var.opcode as u8;
                 let x = if var.address_flags.indexed {
@@ -250,7 +275,7 @@ impl Op {
 }
 
 #[derive(FromPrimitive, Debug, Clone, Copy)]
-pub enum VariableOps {
+pub enum VariableOp {
     ADD = 0x18,
     ADDF = 0x58,
     AND = 0x40,

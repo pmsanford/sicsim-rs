@@ -1324,4 +1324,20 @@ mod test {
         // PC-rel is relative to PC *after* increment, p59
         assert_eq!(vm.A.as_u32(), 73753);
     }
+
+    #[test]
+    fn negatives() {
+        let mut vm = setup_var_op(VariableOp::SUB, 9);
+        ni_op(&mut vm, 3, VariableOp::ADD, 12);
+        ni_op(&mut vm, 6, VariableOp::MUL, 15);
+        set_int(&mut vm, 9, 1);
+        set_int(&mut vm, 12, 3);
+        set_int(&mut vm, 15, -3i32 as u32);
+        vm.step();
+        assert_eq!(vm.A.as_i32(), -1);
+        vm.step();
+        assert_eq!(vm.A.as_i32(), 2);
+        vm.step();
+        assert_eq!(vm.A.as_i32(), -6);
+    }
 }

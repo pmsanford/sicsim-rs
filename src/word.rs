@@ -199,7 +199,6 @@ impl WordExt for Word {
     fn as_i32(&self) -> i32 {
         let [msb, mid, lsb] = *self;
         let neg = msb & 0x80 > 0;
-        let msb = msb & 0x7F;
         let val = u32::from_be_bytes([0, msb, mid, lsb]);
         if neg {
             // Don't do any twos complement just sign extend baybee

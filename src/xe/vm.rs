@@ -105,7 +105,10 @@ impl SicXeVm {
             AddressMode::Simple => match flags.relative_to {
                 AddressRelativeTo::Direct => self.index_addr(argument, flags),
                 AddressRelativeTo::Base => self.index_addr(self.B.as_u32() + argument, flags),
-                AddressRelativeTo::PC => self.index_addr((self.PC.as_i32() + simple_addr_signed(argument)) as u32, flags),
+                AddressRelativeTo::PC => self.index_addr(
+                    (self.PC.as_i32() + simple_addr_signed(argument)) as u32,
+                    flags,
+                ),
             },
             AddressMode::Immediate => match flags.relative_to {
                 AddressRelativeTo::Direct => argument,
@@ -115,7 +118,9 @@ impl SicXeVm {
             AddressMode::Indirect => match flags.relative_to {
                 AddressRelativeTo::Direct => self.word_at(argument).as_u32(),
                 AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument).as_u32(),
-                AddressRelativeTo::PC => self.word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32).as_u32(),
+                AddressRelativeTo::PC => self
+                    .word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32)
+                    .as_u32(),
             },
         }
     }
@@ -392,28 +397,28 @@ impl SicXeVm {
 
                     // Jumps
                     VariableOp::J => {
-                        self.PC = u32_to_word(op.address);
+                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
                     }
                     VariableOp::JLT => {
                         if check_cc(&self.SW) == Ordering::Less {
-                            self.PC = u32_to_word(op.address);
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
                         }
                     }
                     VariableOp::JEQ => {
                         if check_cc(&self.SW) == Ordering::Equal {
-                            self.PC = u32_to_word(op.address);
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
                         }
                     }
                     VariableOp::JGT => {
                         if check_cc(&self.SW) == Ordering::Greater {
-                            self.PC = u32_to_word(op.address);
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
                         }
                     }
 
                     // Subroutines
                     VariableOp::JSUB => {
                         self.L = self.PC;
-                        self.PC = u32_to_word(op.address);
+                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
                     }
                     VariableOp::RSUB => {
                         self.PC = self.L;
@@ -427,11 +432,13 @@ impl SicXeVm {
 
                     // Devices
                     VariableOp::RD => {
-                        let device_id = self.memory[op.address as usize];
+                        let device_id =
+                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
                         self.A[2] = self.read_device(device_id);
                     }
                     VariableOp::TD => {
-                        let device_id = self.memory[op.address as usize];
+                        let device_id =
+                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
                         if self.test_device(device_id) {
                             set_cc(&mut self.SW, Ordering::Less);
                         } else {
@@ -439,7 +446,8 @@ impl SicXeVm {
                         }
                     }
                     VariableOp::WD => {
-                        let device_id = self.memory[op.address as usize];
+                        let device_id =
+                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
                         self.write_device(device_id, self.A[2]);
                     }
 
@@ -487,6 +495,11 @@ impl SicXeVm {
                                 + self.get_register(&two_reg.r1).as_u32(),
                         ),
                     );
+                }
+                TwoRegOp::COMPR => {
+                    let r1 = self.get_register(&two_reg.r1).as_u32();
+                    let r2 = self.get_register(&two_reg.r2).as_u32();
+                    set_cc(&mut self.SW, r1.cmp(&r2));
                 }
                 TwoRegOp::DIVR => {
                     self.set_register(
@@ -1294,7 +1307,7 @@ mod test {
                     indexed: false,
                     extended: false,
                 },
-                address: (-6i32) as u32
+                address: (-6i32) as u32,
             }),
         );
         vm.step();

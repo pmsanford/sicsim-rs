@@ -7,7 +7,7 @@ use libsic::{
 
 #[test]
 fn test_simple_add() {
-    let test_program = include_str!("../programs/sic/add.ebj");
+    let test_program = include_str!("../programs/xe/add.ebj");
     let mut vm = vm_with_program(test_program);
     assert_eq!(vm.A.as_u32(), 0);
     assert_eq!(vm.run_until(100), StopReason::Halted);
@@ -16,10 +16,14 @@ fn test_simple_add() {
 
 #[test]
 fn test_devices() {
-    let test_program = include_str!("../programs/sic/copy.ebj");
-    let test_harness = include_str!("../programs/sic/test_harness.ebj");
+    let test_program = include_str!("../programs/xe/copy.ebj");
+    let test_harness = include_str!("../programs/xe/test_harness.ebj");
     let mut vm = vm_with_program(test_harness);
     load_program_to(&mut vm, test_program);
+    println!(
+        "{:0>2X} {:0>2X} {:0>2X}",
+        vm.memory[0], vm.memory[1], vm.memory[2]
+    );
     let input_device = FileInputDevice::new("tests/copy_input.txt").unwrap();
     let contents = include_bytes!("copy_input.txt");
     let mut expected = contents.to_vec();
@@ -29,6 +33,8 @@ fn test_devices() {
     let (output_buffer, output_device) = MemoryOutputDevice::new();
     vm.add_device(Box::new(input_device), 0xF1);
     vm.add_device(Box::new(output_device), 0x05);
-    assert_eq!(vm.run_until(1000), StopReason::Halted);
+    let stop = vm.run_until(1000);
+    println!("buf len: {}", output_buffer.borrow().len());
+    assert_eq!(stop, StopReason::Halted);
     assert_eq!(*output_buffer.borrow_mut(), expected);
 }

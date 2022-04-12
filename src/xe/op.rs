@@ -22,6 +22,7 @@ pub enum OneRegOp {
 #[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TwoRegOp {
     ADDR = 0x90,
+    COMPR = 0xA0,
     DIVR = 0x9C,
 
     MULR = 0x98,

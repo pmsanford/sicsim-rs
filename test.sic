@@ -1,0 +1,8 @@
+TEST  START 1000
+LOOP  ADD   ONE
+      TIX   COUNT
+      JLT   LOOP
+DONE  J     DONE
+COUNT WORD  5
+ONE   WORD  1
+      END   LOOP

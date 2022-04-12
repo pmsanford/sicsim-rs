@@ -7,5 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.56"
+libsic = { path = "../libsic" }
 once_cell = "1.10.0"
 regex = "1.5.5"

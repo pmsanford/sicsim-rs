@@ -23,6 +23,7 @@ pub struct SicXeVm {
     pub PC: Word, // 8
     pub SW: Word, // 9
     devices: HashMap<u8, Box<dyn Device>>,
+    interrupt_queue: Vec<Interrupt>
 }
 
 impl Debug for SicXeVm {
@@ -59,6 +60,7 @@ impl SicXeVm {
             PC: [0; 3],
             SW: [0; 3],
             devices: HashMap::new(),
+            interrupt_queue: Vec::new()
         }
     }
 
@@ -547,7 +549,48 @@ impl SicXeVm {
                 }
             },
             // Described on p333
-            Op::Svc(_n) => todo!(),
+            Op::Svc(n) => {
+                self.SW[2] = n;
+                self.handle_interrupt(Interrupt::Svc);
+            }
+        }
+    }
+
+    fn handle_interrupt(&mut self, interrupt: Interrupt) {
+        //TODO: Treat these like instructions that increment the cycle count etc
+        let work_area = interrupt.work_area();
+
+        self.set_at(work_area + 6, &AddressFlags::immediate(), self.SW);
+        self.set_at(work_area + 9, &AddressFlags::immediate(), self.PC);
+
+        self.set_at(work_area + 12, &AddressFlags::immediate(), self.A);
+        self.set_at(work_area + 15, &AddressFlags::immediate(), self.X);
+        self.set_at(work_area + 18, &AddressFlags::immediate(), self.L);
+        self.set_at(work_area + 21, &AddressFlags::immediate(), self.B);
+        self.set_at(work_area + 24, &AddressFlags::immediate(), self.S);
+        self.set_at(work_area + 27, &AddressFlags::immediate(), self.T);
+        self.set_dword_at(work_area + 30, &AddressFlags::immediate(), self.F);
+
+        self.SW = self.word_at(work_area);
+        self.PC = self.word_at(work_area + 3);
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Interrupt {
+    Svc,
+    Program,
+    Timer,
+    Io
+}
+
+impl Interrupt {
+    fn work_area(&self) -> u32 {
+        match self {
+            Interrupt::Svc => 0x100,
+            Interrupt::Program => 0x130,
+            Interrupt::Timer => 0x160,
+            Interrupt::Io => 0x190,
         }
     }
 }

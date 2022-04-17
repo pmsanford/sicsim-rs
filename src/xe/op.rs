@@ -135,6 +135,17 @@ impl AddressFlags {
             extended: bytes[1] & 0x10 > 0,
         }
     }
+
+    // For directly specifying a full address,
+    // used in service interrupt handling
+    pub fn immediate() -> Self {
+        Self {
+            mode: AddressMode::Immediate,
+            relative_to: AddressRelativeTo::Direct,
+            indexed: false,
+            extended: true
+        }
+    }
 }
 
 impl AddressMode {

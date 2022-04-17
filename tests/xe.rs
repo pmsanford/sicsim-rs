@@ -12,6 +12,7 @@ fn test_relocation() {
     assert_eq!(vm.A.as_u32(), 0);
     assert_eq!(vm.run_until(100), StopReason::Halted);
     assert_eq!(vm.A.as_u32(), 15);
+    assert_eq!(vm.T.as_u32(), 2000);
 }
 
 #[test]

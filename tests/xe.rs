@@ -1,9 +1,31 @@
 use libsic::{
     device::{FileInputDevice, MemoryOutputDevice},
-    xe::load::{load_program_to, vm_with_program},
+    word::u32_to_word,
     xe::vm::StopReason,
+    xe::{
+        load::{load_program_at, load_program_to, vm_with_program},
+        op::AddressFlags,
+    },
     WordExt,
 };
+
+#[test]
+fn test_interrupt() {
+    let interrupt_handler = include_str!("../programs/xe/test_inter.ebj");
+    let test_program = include_str!("../programs/xe/call_svc.ebj");
+    let mut vm = vm_with_program(test_program);
+    load_program_at(&mut vm, interrupt_handler, 1000);
+    vm.set_at(0x103, &AddressFlags::immediate(), u32_to_word(1000));
+    let (output_buffer, output_device) = MemoryOutputDevice::new();
+    vm.add_device(Box::new(output_device), 0x01);
+    assert_eq!(vm.run_until(100), StopReason::Halted);
+    let expected = "Read".as_bytes();
+    assert_eq!(*output_buffer.borrow_mut(), expected);
+    assert_eq!(vm.A.as_u32(), 1234);
+    assert_eq!(vm.S.as_u32(), 1);
+    assert_eq!(vm.T.as_u32(), 10);
+    assert_eq!(vm.X.as_u32(), 0);
+}
 
 #[test]
 fn test_relocation() {

@@ -197,7 +197,7 @@ impl SicXeVm {
         }
     }
 
-    fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
+    pub fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
         //TODO: What does immediate mean here
         let address = self.calc_addr(address, flags);
         self.memory[address as usize] = value[0];
@@ -455,7 +455,21 @@ impl SicXeVm {
 
                     // System
                     VariableOp::SSK => todo!(),
-                    VariableOp::LPS => todo!(),
+                    VariableOp::LPS => {
+                        //TODO: Treat these like instructions that increment the cycle count etc
+                        let address = self.calc_addr(op.address, &op.address_flags);
+
+                        self.SW = self.word_at(address + 6);
+                        self.PC = self.word_at(address + 9);
+
+                        self.A = self.word_at(address + 12);
+                        self.X = self.word_at(address + 15);
+                        self.L = self.word_at(address + 18);
+                        self.B = self.word_at(address + 21);
+                        self.S = self.word_at(address + 24);
+                        self.T = self.word_at(address + 27);
+                        self.F = self.dword_at(address + 30);
+                    }
                     VariableOp::STI => todo!(),
                 }
             }

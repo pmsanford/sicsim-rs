@@ -4,6 +4,7 @@ use crate::WordExt;
 
 use super::vm::SicXeVm;
 
+#[derive(Debug)]
 pub struct Header {
     pub name: String,
     pub start_address: u32,
@@ -25,6 +26,7 @@ impl Header {
     }
 }
 
+#[derive(Debug)]
 pub struct Text {
     pub start_address: u32,
     pub data: Vec<u8>,
@@ -51,6 +53,7 @@ impl Text {
     }
 }
 
+#[derive(Debug)]
 pub struct Modification {
     pub address: u32,
     pub length: u8,
@@ -69,6 +72,7 @@ impl Modification {
     }
 }
 
+#[derive(Debug)]
 pub struct End {
     pub first_address: u32,
 }
@@ -84,6 +88,7 @@ impl End {
     }
 }
 
+#[derive(Debug)]
 pub struct Program {
     pub header: Header,
     pub text: Vec<Text>,
@@ -126,7 +131,7 @@ pub fn load_program_from(path: &str) -> Program {
 }
 
 pub fn copy_to_memory(memory: &mut [u8], program: &Program) -> u32 {
-    if program.modifications.is_empty() {
+    if program.modifications.is_empty() && program.header.start_address != 0 {
         for datum in &program.text {
             for (i, byte) in datum.data.iter().enumerate() {
                 memory[datum.start_address as usize + i] = *byte;

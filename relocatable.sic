@@ -1,0 +1,10 @@
+RELO    START   0
+       +LDA     DATA
+        ADD     OPER
+        STA     RESU
+        LDT    #RELO
+DONE    J       DONE
+DATA    WORD    10
+OPER    WORD    5
+RESU    RESW    1
+        END     RELO

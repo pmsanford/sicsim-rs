@@ -1,0 +1,9 @@
+INTER   START   0
+        STA    #112
+        STX    #115
+        STL    #118
+        STB    #121
+        STS    #124
+        STT    #127
+        STF    #130
+        END     INTER

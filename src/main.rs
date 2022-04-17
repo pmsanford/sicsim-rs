@@ -177,39 +177,6 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
         )))
     }
 }
-fn size_o(directive: &str, argument: Option<&String>) -> Result<usize> {
-    Ok(match directive {
-        opcode if OPCODES.get().unwrap().contains_key(opcode) => 3,
-        "START" => 0,
-        "BYTE" => {
-            let argument =
-                argument.ok_or_else(|| anyhow::Error::msg("Byte directive requires argument"))?;
-            if argument.starts_with("C'") {
-                argument.len() - 3
-            } else if argument.starts_with("X'") {
-                (argument.len() - 3) / 2
-            } else {
-                return Err(anyhow::Error::msg(format!(
-                    "Invalid byte directive {}",
-                    argument
-                )));
-            }
-        }
-        "WORD" => 3,
-        "RESW" => {
-            let argument =
-                argument.ok_or_else(|| anyhow::Error::msg("RESW directive requires argument"))?;
-            argument.parse::<usize>()? * 3
-        }
-        "RESB" => {
-            let argument =
-                argument.ok_or_else(|| anyhow::Error::msg("RESB directive requires argument"))?;
-            argument.parse::<usize>()?
-        }
-        "END" => 0,
-        unknown => return Err(anyhow::Error::msg(format!("Unknown directive {}", unknown))),
-    })
-}
 
 fn build_opcodes() -> HashMap<String, u8> {
     [
@@ -303,7 +270,9 @@ impl ParsedLine {
             panic!("No target found");
         };
         let pc = self.offset + 3;
-        let (disp, relative_to) = if self.extended {
+        let (disp, relative_to) = if mode == AddressMode::Immediate {
+            (target, AddressRelativeTo::Direct)
+        } else if self.extended {
             // Extended
             (target, AddressRelativeTo::Direct)
         } else if (target as i32) - (pc as i32) < (MAX_PC as i32)
@@ -397,6 +366,12 @@ impl Text {
 }
 
 #[derive(Debug)]
+struct Modification {
+    address: usize,
+    length: usize,
+}
+
+#[derive(Debug)]
 enum Record {
     Header {
         name: String,
@@ -404,6 +379,7 @@ enum Record {
         length: usize,
     },
     Text(Text),
+    Modification(Modification),
     End {
         first_instruction: usize,
     },
@@ -455,6 +431,11 @@ impl Display for Record {
 
                 Ok(())
             }
+            Record::Modification(modification) => write!(
+                f,
+                "M{:0>6X}{:0>2X}",
+                modification.address, modification.length
+            ),
             Record::End { first_instruction } => write!(f, "E{:0>6X}", first_instruction),
         }
     }
@@ -509,6 +490,7 @@ fn main() -> Result<()> {
     }
 
     let mut records = vec![];
+    let mut modifications = vec![];
 
     let name = start.label.as_ref().expect("Expected name").clone();
     let base = usize::from_str_radix(start.argument.as_ref().expect("Start argument"), 16).unwrap();
@@ -706,6 +688,22 @@ fn main() -> Result<()> {
 
                 let (address, address_flags) = line.parse_flags(cur_base, &labels);
 
+                if address_flags.mode != AddressMode::Immediate
+                    && address_flags.relative_to == AddressRelativeTo::Direct
+                {
+                    let length = if address_flags.mode == AddressMode::Compatiblity {
+                        4
+                    } else if address_flags.extended {
+                        5
+                    } else {
+                        3
+                    };
+
+                    let address = line.offset + base + 1;
+
+                    modifications.push(Modification { address, length });
+                }
+
                 let op = Op::Variable(Variable {
                     opcode,
                     address_flags,
@@ -741,6 +739,10 @@ fn main() -> Result<()> {
             }
         };
         i += 1;
+    }
+
+    for modification in modifications {
+        records.push(Record::Modification(modification));
     }
 
     records.push(Record::End {

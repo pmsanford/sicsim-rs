@@ -1,0 +1,7 @@
+CSVC    START   0
+        LDA    #1234
+        LDS    #1
+        SVC     1
+        LDT    #10
+DONE    J       DONE
+        END     CSVC

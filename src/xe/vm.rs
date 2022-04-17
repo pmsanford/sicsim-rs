@@ -23,7 +23,7 @@ pub struct SicXeVm {
     pub PC: Word, // 8
     pub SW: Word, // 9
     devices: HashMap<u8, Box<dyn Device>>,
-    interrupt_queue: Vec<Interrupt>
+    interrupt_queue: Vec<Interrupt>,
 }
 
 impl Debug for SicXeVm {
@@ -60,7 +60,7 @@ impl SicXeVm {
             PC: [0; 3],
             SW: [0; 3],
             devices: HashMap::new(),
-            interrupt_queue: Vec::new()
+            interrupt_queue: Vec::new(),
         }
     }
 
@@ -72,8 +72,8 @@ impl SicXeVm {
         self.devices.remove(&address)
     }
 
-    pub fn set_pc(&mut self, address: u16) {
-        self.PC = u32_to_word(address as u32);
+    pub fn set_pc(&mut self, address: u32) {
+        self.PC = u32_to_word(address);
     }
 
     fn test_device(&mut self, device_id: u8) -> bool {
@@ -581,7 +581,7 @@ enum Interrupt {
     Svc,
     Program,
     Timer,
-    Io
+    Io,
 }
 
 impl Interrupt {

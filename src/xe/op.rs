@@ -143,7 +143,7 @@ impl AddressFlags {
             mode: AddressMode::Immediate,
             relative_to: AddressRelativeTo::Direct,
             indexed: false,
-            extended: true
+            extended: true,
         }
     }
 }

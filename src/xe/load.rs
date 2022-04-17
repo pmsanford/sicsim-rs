@@ -1,11 +1,13 @@
 use std::{fs::File, io::Read};
 
+use crate::WordExt;
+
 use super::vm::SicXeVm;
 
 pub struct Header {
     pub name: String,
-    pub start_address: u16,
-    pub length: u16,
+    pub start_address: u32,
+    pub length: u32,
 }
 
 impl Header {
@@ -17,14 +19,14 @@ impl Header {
 
         Self {
             name: name.to_owned(),
-            start_address: u16::from_str_radix(start_address, 16).unwrap(),
-            length: u16::from_str_radix(length, 16).unwrap(),
+            start_address: u32::from_str_radix(start_address, 16).unwrap(),
+            length: u32::from_str_radix(length, 16).unwrap(),
         }
     }
 }
 
 pub struct Text {
-    pub start_address: u16,
+    pub start_address: u32,
     pub data: Vec<u8>,
 }
 
@@ -43,14 +45,32 @@ impl Text {
             .unwrap();
 
         Self {
-            start_address: u16::from_str_radix(start_address, 16).unwrap(),
+            start_address: u32::from_str_radix(start_address, 16).unwrap(),
             data,
         }
     }
 }
 
+pub struct Modification {
+    pub address: u32,
+    pub length: u8,
+}
+
+impl Modification {
+    fn from_record(line: &str) -> Self {
+        let _t = &line[..1];
+        let address = &line[1..7];
+        let length = &line[7..9];
+
+        Self {
+            address: u32::from_str_radix(address, 16).unwrap(),
+            length: u8::from_str_radix(length, 16).unwrap(),
+        }
+    }
+}
+
 pub struct End {
-    pub first_address: u16,
+    pub first_address: u32,
 }
 
 impl End {
@@ -59,7 +79,7 @@ impl End {
         let first_address = &line[1..7];
 
         Self {
-            first_address: u16::from_str_radix(first_address, 16).unwrap(),
+            first_address: u32::from_str_radix(first_address, 16).unwrap(),
         }
     }
 }
@@ -67,6 +87,7 @@ impl End {
 pub struct Program {
     pub header: Header,
     pub text: Vec<Text>,
+    pub modifications: Vec<Modification>,
     pub end: End,
 }
 
@@ -76,13 +97,25 @@ pub fn load_program(program_text: &str) -> Program {
         .filter(|l| !l.trim().is_empty())
         .collect::<Vec<_>>();
     let header = Header::from_record(lines[0]);
-    let text = lines[1..lines.len() - 1]
-        .iter()
-        .map(|line| Text::from_record(line))
-        .collect::<Vec<_>>();
+    let mut text = vec![];
+    let mut modifications = vec![];
+    for line in lines[1..lines.len() - 1].iter() {
+        if let Some(ty) = line.chars().nth(0) {
+            match ty {
+                'T' => text.push(Text::from_record(line)),
+                'M' => modifications.push(Modification::from_record(line)),
+                _ => unreachable!(),
+            }
+        }
+    }
     let end = End::from_record(lines[lines.len() - 1]);
 
-    Program { header, text, end }
+    Program {
+        header,
+        text,
+        modifications,
+        end,
+    }
 }
 
 pub fn load_program_from(path: &str) -> Program {
@@ -92,32 +125,61 @@ pub fn load_program_from(path: &str) -> Program {
     load_program(&content)
 }
 
-// TODO: Fallible
-pub fn copy_to_memory(memory: &mut [u8], program: &Program) {
-    for datum in &program.text {
-        for (i, byte) in datum.data.iter().enumerate() {
-            memory[datum.start_address as usize + i] = *byte;
+pub fn copy_to_memory(memory: &mut [u8], program: &Program) -> u32 {
+    if program.modifications.is_empty() {
+        for datum in &program.text {
+            for (i, byte) in datum.data.iter().enumerate() {
+                memory[datum.start_address as usize + i] = *byte;
+            }
         }
+        program.end.first_address
+    } else {
+        copy_to_memory_at(memory, program, 2000);
+        2000 + program.end.first_address
     }
 }
 
-pub fn init_with_program(path: &str) -> SicXeVm {
-    let mut vm = SicXeVm::empty();
-
-    let program = load_program(path);
-
-    copy_to_memory(&mut vm.memory, &program);
-
-    vm.set_pc(program.end.first_address);
-
-    vm
+// TODO: Fallible
+pub fn copy_to_memory_at(memory: &mut [u8], program: &Program, at: u32) {
+    for datum in &program.text {
+        for (i, byte) in datum.data.iter().enumerate() {
+            memory[datum.start_address as usize + i + at as usize] = *byte;
+        }
+    }
+    for amod in &program.modifications {
+        let len = amod.length;
+        let mut addr = amod.address as usize + at as usize;
+        let (cur, masks) = match len {
+            5 => (
+                [memory[addr], memory[addr + 1], memory[addr + 2]].as_u32() & 0x00_0F_FF_FFu32,
+                [0xF0, 0x00, 0x00],
+            ),
+            4 => (
+                [memory[addr], memory[addr + 1], memory[addr + 2]].as_u32() & 0x00_00_FF_FF,
+                [0xFF, 0x00, 0x00],
+            ),
+            3 => (
+                [0, memory[addr], memory[addr + 1]].as_u32() & 0x00_00_0F_FF,
+                [0xFF, 0xF0, 0x00],
+            ),
+            _ => unreachable!(),
+        };
+        let new = cur + at;
+        let [_, a, b, c] = new.to_be_bytes();
+        if len > 3 {
+            memory[addr] = (memory[addr] & masks[0]) + a;
+            addr += 1;
+        }
+        memory[addr] = (memory[addr] & masks[1]) + b;
+        memory[addr + 1] = (memory[addr + 1] & masks[2]) + c;
+    }
 }
 
 pub fn vm_with_program(program_text: &str) -> SicXeVm {
     let mut vm = SicXeVm::empty();
     let program = load_program(program_text);
-    copy_to_memory(&mut vm.memory, &program);
-    vm.set_pc(program.end.first_address);
+    let first_address = copy_to_memory(&mut vm.memory, &program);
+    vm.set_pc(first_address);
     vm
 }
 

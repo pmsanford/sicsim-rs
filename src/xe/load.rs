@@ -175,6 +175,14 @@ pub fn copy_to_memory_at(memory: &mut [u8], program: &Program, at: u32) {
     }
 }
 
+pub fn vm_with_program_at(program_text: &str, at: u32) -> SicXeVm {
+    let mut vm = SicXeVm::empty();
+    let program = load_program(program_text);
+    copy_to_memory_at(&mut vm.memory, &program, at);
+    vm.set_pc(at);
+    vm
+}
+
 pub fn vm_with_program(program_text: &str) -> SicXeVm {
     let mut vm = SicXeVm::empty();
     let program = load_program(program_text);
@@ -186,4 +194,9 @@ pub fn vm_with_program(program_text: &str) -> SicXeVm {
 pub fn load_program_to(vm: &mut SicXeVm, program_text: &str) {
     let program = load_program(program_text);
     copy_to_memory(&mut vm.memory, &program);
+}
+
+pub fn load_program_at(vm: &mut SicXeVm, program_text: &str, at: u32) {
+    let program = load_program(program_text);
+    copy_to_memory_at(&mut vm.memory, &program, at);
 }

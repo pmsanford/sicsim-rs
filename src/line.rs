@@ -1,5 +1,18 @@
 use anyhow::Result;
 
+use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
+use regex::Regex;
+
+use crate::{
+    constants::line_regex,
+    directive::{Assembler, Directive},
+    labels::Labels,
+};
+
+static MAX_DISP: u16 = 4095; // 0x0F_FF
+static MAX_PC: u16 = 2047; // 0x07_FF
+static MIN_PC: i16 = -2048; // 0x08_00
+
 fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
     if let Some(dir) = Directive::from_str(&directive.replace("+", "")) {
         Ok(match dir {
@@ -62,46 +75,35 @@ pub struct ParsedLine {
     pub offset: usize,
 }
 
-static MAX_DISP: u16 = 4095; // 0x0F_FF
-static MAX_PC: u16 = 2047; // 0x07_FF
-static MIN_PC: i16 = -2048; // 0x08_00
-
-use std::collections::HashMap;
-
-use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
-use regex::Regex;
-
-use crate::{
-    directive::{Assembler, Directive},
-    LINE_REGEX,
-};
-
 impl ParsedLine {
-    fn target(&self, labels: &HashMap<String, usize>) -> Option<usize> {
+    fn target(&self, labels: &Labels) -> Result<Option<usize>> {
         if let Some(mut argument) = self.argument.clone() {
             if argument.ends_with(",X") {
                 argument = argument[..argument.len() - 2].to_owned();
             }
-            if argument.starts_with("#")
-                && Regex::new("[0-9][0-9]*").unwrap().is_match(&argument[1..])
-            {
-                return Some(argument[1..].parse().unwrap());
+            if argument.starts_with("#") && Regex::new("[0-9][0-9]*")?.is_match(&argument[1..]) {
+                return Ok(Some(argument[1..].parse().map_err(|e| {
+                    anyhow::Error::msg("Couldn't parse immediate arg").context(e)
+                })?));
             }
             if argument.starts_with("#") || argument.starts_with("@") {
                 argument = argument[1..].to_owned();
             }
 
-            Some(*labels.get(&argument).unwrap())
+            Ok(Some(labels.get(&argument)?))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    pub fn parse_flags(
-        &self,
-        base: Option<usize>,
-        labels: &HashMap<String, usize>,
-    ) -> (u32, AddressFlags) {
+    pub fn get_argument(&self) -> Result<&str> {
+        self.argument
+            .as_ref()
+            .map(|s| s.as_str())
+            .ok_or_else(|| anyhow::Error::msg(format!("{:?} requires an argument", self.directive)))
+    }
+
+    pub fn parse_flags(&self, base: Option<usize>, labels: &Labels) -> Result<(u32, AddressFlags)> {
         let mode = match self.argument.as_ref().map(|a| a.chars().next()).flatten() {
             Some('#') => AddressMode::Immediate,
             Some('@') => AddressMode::Indirect,
@@ -112,14 +114,12 @@ impl ParsedLine {
             .as_ref()
             .map(|a| a.ends_with(",X"))
             .unwrap_or(false);
-        let target = self.target(labels);
+        let target = self.target(labels)?;
         let target = if target.is_none() && self.directive == Directive::Variable(VariableOp::RSUB)
         {
             0
-        } else if target.is_some() {
-            target.unwrap()
         } else {
-            panic!("No target found");
+            target.ok_or_else(|| anyhow::Error::msg("Expected target"))?
         };
         let pc = self.offset + 3;
         let (disp, relative_to) = if mode == AddressMode::Immediate {
@@ -145,7 +145,7 @@ impl ParsedLine {
             // Error
             panic!("Too big for simple addressing");
         };
-        (
+        Ok((
             disp as u32,
             AddressFlags {
                 mode,
@@ -153,26 +153,27 @@ impl ParsedLine {
                 indexed,
                 extended: self.extended,
             },
-        )
+        ))
     }
 }
 
 pub fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
-    LINE_REGEX
-        .get()
-        .unwrap()
+    line_regex()
         .captures(line)
         .map(|cap| {
             let raw_directive = cap
                 .name("directive")
                 .map(|m| m.as_str().to_owned())
-                .unwrap();
+                .ok_or_else(|| anyhow::Error::msg("Expected a 'directive' capture"))?;
             let argument = cap
                 .name("argument")
                 .filter(|m| m.as_str().len() > 0)
                 .map(|m| m.as_str().to_owned());
 
-            let directive = Directive::from_str(&raw_directive.replace("+", "")).unwrap();
+            let directive =
+                Directive::from_str(&raw_directive.replace("+", "")).ok_or_else(|| {
+                    anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
+                })?;
 
             let size = size(&raw_directive, argument.as_ref())?;
 

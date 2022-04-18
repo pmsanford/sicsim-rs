@@ -23,6 +23,7 @@ pub struct SicXeVm {
     pub PC: Word, // 8
     pub SW: Word, // 9
     devices: HashMap<u8, Box<dyn Device>>,
+    #[allow(dead_code)]
     interrupt_queue: Vec<Interrupt>,
 }
 
@@ -590,6 +591,7 @@ impl SicXeVm {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 enum Interrupt {
     Svc,

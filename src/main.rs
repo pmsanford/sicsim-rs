@@ -1,9 +1,8 @@
 use anyhow::Result;
 use constants::register;
 use directive::{Assembler, Directive};
-use labels::Labels;
 use libsic::xe::op::{AddressMode, AddressRelativeTo, OneReg, Op, Shift, TwoReg, Variable};
-use line::parse_line;
+use line::PassOne;
 use record::{Data, Modification, Record, Text};
 use std::{
     env,
@@ -23,21 +22,10 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow::Error::msg("Need a filename"))?;
     let file = File::open(filename)?;
 
-    let mut cur_loc = 0;
-    let mut lines = vec![];
-    let mut labels = Labels::new();
-
-    for line in BufReader::new(file).lines() {
-        let parsed = parse_line(&line?, cur_loc)?;
-        if let Some(parsed) = parsed {
-            cur_loc += parsed.size;
-            if let Some(label) = parsed.label.as_ref() {
-                //TODO: Assumes only one START
-                labels.add(label.clone(), parsed.offset);
-            }
-            lines.push(parsed);
-        }
-    }
+    let lines = BufReader::new(file)
+        .lines()
+        .collect::<Result<Vec<_>, _>>()?;
+    let (labels, lines) = PassOne::parse_lines(&lines)?;
 
     let start = &lines[0];
     let end = &lines[lines.len() - 1];

@@ -3,6 +3,11 @@ use anyhow::Result;
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
 
+pub struct PassOne {
+    cur_offset: usize,
+    labels: Labels,
+}
+
 use crate::{
     constants::line_regex,
     directive::{Assembler, Directive},
@@ -154,34 +159,61 @@ impl ParsedLine {
     }
 }
 
-pub fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
-    line_regex()
-        .captures(line)
-        .map(|cap| {
-            let raw_directive = cap
-                .name("directive")
-                .map(|m| m.as_str().to_owned())
-                .ok_or_else(|| anyhow::Error::msg("Expected a 'directive' capture"))?;
-            let argument = cap
-                .name("argument")
-                .filter(|m| !m.as_str().is_empty())
-                .map(|m| m.as_str().to_owned());
+impl PassOne {
+    fn new() -> Self {
+        Self {
+            cur_offset: 0,
+            labels: Labels::new(),
+        }
+    }
 
-            let directive =
-                Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
-                    anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
-                })?;
+    pub fn parse_lines(lines: &[String]) -> Result<(Labels, Vec<ParsedLine>)> {
+        let mut pass = Self::new();
+        let lines = lines
+            .iter()
+            .filter_map(|line| pass.parse_line(line).transpose())
+            .collect::<Result<Vec<_>, _>>()?;
 
-            let size = size(&raw_directive, argument.as_ref())?;
+        Ok((pass.labels, lines))
+    }
 
-            Ok(ParsedLine {
-                label: cap.name("label").map(|m| m.as_str().to_owned()),
-                directive,
-                extended: raw_directive.starts_with('+'),
-                argument,
-                size,
-                offset,
+    fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
+        line_regex()
+            .captures(line)
+            .map(|cap| {
+                let raw_directive = cap
+                    .name("directive")
+                    .map(|m| m.as_str().to_owned())
+                    .ok_or_else(|| anyhow::Error::msg("Expected a 'directive' capture"))?;
+                let argument = cap
+                    .name("argument")
+                    .filter(|m| !m.as_str().is_empty())
+                    .map(|m| m.as_str().to_owned());
+
+                let directive =
+                    Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
+                        anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
+                    })?;
+
+                let size = size(&raw_directive, argument.as_ref())?;
+
+                let offset = self.cur_offset;
+                self.cur_offset += size;
+                let label = cap.name("label").map(|m| m.as_str().to_owned());
+
+                if let Some(label) = label.as_ref() {
+                    self.labels.add(label.clone(), offset);
+                }
+
+                Ok(ParsedLine {
+                    label,
+                    directive,
+                    extended: raw_directive.starts_with('+'),
+                    argument,
+                    size,
+                    offset,
+                })
             })
-        })
-        .transpose()
+            .transpose()
+    }
 }

@@ -54,7 +54,7 @@ fn main() -> Result<()> {
     let pass_one = FirstPass::parse_lines(&lines)?;
 
     let start = &pass_one.parsed_lines[0];
-    let end = &pass_one.parsed_lines[lines.len() - 1];
+    let end = &pass_one.parsed_lines[pass_one.parsed_lines.len() - 1];
 
     if start.directive != Directive::Assembler(Assembler::START) {
         return Err(anyhow::Error::msg("Expected start directive"));
@@ -78,6 +78,7 @@ fn main() -> Result<()> {
 
     let mut cur_text = None;
     let mut cur_base = None;
+    let mut literals = Vec::new();
 
     for line in pass_one.parsed_lines.iter() {
         let text = cur_text.take();
@@ -110,6 +111,31 @@ fn main() -> Result<()> {
                             break;
                         }
                     }
+                    cur_text = Some(text);
+                }
+                Assembler::LTORG => {
+                    let mut text = text.unwrap_or_else(|| Text {
+                        address: line.offset + start_addr,
+                        instructions: vec![],
+                    });
+
+                    while !literals.is_empty() {
+                        let space_remaining = 30 - text.len();
+                        if space_remaining < literals.len() {
+                            let new_text: Vec<u8> = literals.drain(..space_remaining).collect();
+                            let new_literals = new_text.len();
+                            text.instructions.push(Data::Byte(new_text));
+                            records.push(Record::Text(text));
+                            text = Text {
+                                address: line.offset + start_addr + new_literals,
+                                instructions: vec![],
+                            };
+                        } else {
+                            text.instructions.push(Data::Byte(literals));
+                            break;
+                        }
+                    }
+                    literals = Vec::new();
                     cur_text = Some(text);
                 }
                 Assembler::WORD => {
@@ -226,7 +252,15 @@ fn main() -> Result<()> {
                     instructions: vec![],
                 });
 
-                let (address, address_flags) = line.parse_flags(cur_base, &pass_one.labels)?;
+                // Parse literal
+                if line.literal_offset.is_some() {
+                    let argument = line.get_argument()?;
+                    let mut new_lits = parse_literal(&argument[1..])?;
+                    literals.append(&mut new_lits);
+                }
+
+                let (address, address_flags) =
+                    line.parse_flags(cur_base, &pass_one.labels, &pass_one.literal_offsets)?;
 
                 if address_flags.mode != AddressMode::Immediate
                     && address_flags.relative_to == AddressRelativeTo::Direct

@@ -1,0 +1,8 @@
+LTOR  START   0
+      LDA     =C'Hi!'
+      LDS     =C'ABC'
+      J       NXT
+      LTORG
+NXT   LDT     =C'DEF'
+DONE  J       DONE
+      END     LTOR

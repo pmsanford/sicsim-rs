@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
@@ -6,11 +8,15 @@ use regex::Regex;
 pub struct FirstPass {
     cur_offset: usize,
     labels: Labels,
+    literal_size: usize,
+    ltorg_index: usize,
+    literal_offsets: HashMap<usize, usize>,
 }
 
 pub struct PassOne {
     pub parsed_lines: Vec<ParsedLine>,
     pub labels: Labels,
+    pub literal_offsets: HashMap<usize, usize>,
 }
 
 use crate::{
@@ -23,6 +29,16 @@ static MAX_DISP: u16 = 4095; // 0x0F_FF
 static MAX_PC: u16 = 2047; // 0x07_FF
 static MIN_PC: i16 = -2048; // 0x08_00
 
+fn literal_size(argument: &str) -> Result<usize> {
+    if argument.starts_with("C'") {
+        Ok(argument.len() - 3)
+    } else if argument.starts_with("X'") {
+        Ok((argument.len() - 3) / 2)
+    } else {
+        Err(anyhow::Error::msg(format!("Invalid literal {}", argument)))
+    }
+}
+
 fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
     if let Some(dir) = Directive::from_str(&directive.replace('+', "")) {
         Ok(match dir {
@@ -31,18 +47,11 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
                 Assembler::BYTE => {
                     let argument = argument
                         .ok_or_else(|| anyhow::Error::msg("Byte directive requires argument"))?;
-                    if argument.starts_with("C'") {
-                        argument.len() - 3
-                    } else if argument.starts_with("X'") {
-                        (argument.len() - 3) / 2
-                    } else {
-                        return Err(anyhow::Error::msg(format!(
-                            "Invalid byte directive {}",
-                            argument
-                        )));
-                    }
+                    literal_size(argument)?
                 }
                 Assembler::WORD => 3,
+                // Implemented in the caller
+                Assembler::LTORG => unimplemented!(),
                 Assembler::RESW => {
                     let argument = argument
                         .ok_or_else(|| anyhow::Error::msg("RESW directive requires argument"))?;
@@ -83,6 +92,8 @@ pub struct ParsedLine {
     pub extended: bool,
     pub size: usize,
     pub offset: usize,
+    pub literal_offset: Option<usize>,
+    pub ltorg_index: usize,
 }
 
 impl ParsedLine {
@@ -112,7 +123,13 @@ impl ParsedLine {
             .ok_or_else(|| anyhow::Error::msg(format!("{:?} requires an argument", self.directive)))
     }
 
-    pub fn parse_flags(&self, base: Option<usize>, labels: &Labels) -> Result<(u32, AddressFlags)> {
+    pub fn parse_flags(
+        &self,
+        base: Option<usize>,
+        labels: &Labels,
+        literal_offsets: &HashMap<usize, usize>,
+    ) -> Result<(u32, AddressFlags)> {
+        //TODO: Split this into parsing flags and calculating displacement
         let mode = match self.argument.as_ref().and_then(|a| a.chars().next()) {
             Some('#') => AddressMode::Immediate,
             Some('@') => AddressMode::Indirect,
@@ -123,7 +140,11 @@ impl ParsedLine {
             .as_ref()
             .map(|a| a.ends_with(",X"))
             .unwrap_or(false);
-        let target = self.target(labels)?;
+        let target = if let Some(literal_offset) = self.literal_offset {
+            Some(literal_offsets.get(&self.ltorg_index).unwrap() + literal_offset)
+        } else {
+            self.target(labels)?
+        };
         let target = if target.is_none() && self.directive == Directive::Variable(VariableOp::RSUB)
         {
             0
@@ -169,19 +190,39 @@ impl FirstPass {
         Self {
             cur_offset: 0,
             labels: Labels::new(),
+            literal_size: 0,
+            ltorg_index: 0,
+            literal_offsets: HashMap::new(),
         }
     }
 
     pub fn parse_lines(lines: &[String]) -> Result<PassOne> {
         let mut pass = Self::new();
-        let lines = lines
+        let mut lines = lines
             .iter()
             .filter_map(|line| pass.parse_line(line).transpose())
             .collect::<Result<Vec<_>, _>>()?;
 
+        if pass.literal_size > 0 {
+            let lastline = ParsedLine {
+                label: None,
+                directive: Directive::Assembler(Assembler::LTORG),
+                argument: None,
+                extended: false,
+                size: pass.literal_size,
+                offset: lines.last().unwrap().offset,
+                literal_offset: None,
+                ltorg_index: pass.ltorg_index,
+            };
+            pass.literal_offsets
+                .insert(lastline.ltorg_index, lastline.offset);
+            lines.insert(lines.len() - 1, lastline);
+        }
+
         Ok(PassOne {
             parsed_lines: lines,
             labels: pass.labels,
+            literal_offsets: pass.literal_offsets,
         })
     }
 
@@ -203,7 +244,16 @@ impl FirstPass {
                         anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
                     })?;
 
-                let size = size(&raw_directive, argument.as_ref())?;
+                let size = if directive == Directive::Assembler(Assembler::LTORG) {
+                    let cur_size = self.literal_size;
+                    self.literal_size = 0;
+                    self.literal_offsets
+                        .insert(self.ltorg_index, self.cur_offset);
+                    self.ltorg_index += 1;
+                    cur_size
+                } else {
+                    size(&raw_directive, argument.as_ref())?
+                };
 
                 let offset = self.cur_offset;
                 self.cur_offset += size;
@@ -213,6 +263,19 @@ impl FirstPass {
                     self.labels.add(label.clone(), offset);
                 }
 
+                let literal_offset = if argument
+                    .as_ref()
+                    .map(|a| a.starts_with('='))
+                    .unwrap_or(false)
+                {
+                    let literal_offset = self.literal_size;
+                    let argument = argument.as_ref().unwrap();
+                    self.literal_size += literal_size(&argument[1..])?;
+                    Some(literal_offset)
+                } else {
+                    None
+                };
+
                 Ok(ParsedLine {
                     label,
                     directive,
@@ -220,6 +283,8 @@ impl FirstPass {
                     argument,
                     size,
                     offset,
+                    literal_offset,
+                    ltorg_index: self.ltorg_index,
                 })
             })
             .transpose()

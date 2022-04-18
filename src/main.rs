@@ -16,6 +16,32 @@ mod labels;
 mod line;
 mod record;
 
+fn parse_literal(arg: &str) -> Result<Vec<u8>> {
+    let (t, v) = arg
+        .split_once('\'')
+        .ok_or_else(|| anyhow::Error::msg("Invalid byte argument"))?;
+    Ok(match t {
+        "X" => {
+            let bytes = v[..v.len() - 1]
+                .chars()
+                .collect::<Vec<char>>()
+                .chunks(2)
+                .map(|c| c.iter().collect::<String>())
+                .map(|s| u8::from_str_radix(&s, 16))
+                .collect::<Result<Vec<_>, _>>()?;
+            bytes
+        }
+        "C" => {
+            let bytes = v[..v.len() - 1]
+                .chars()
+                .map(|c| c as u8)
+                .collect::<Vec<_>>();
+            bytes
+        }
+        _ => return Err(anyhow::Error::msg("Invalid byte argument")),
+    })
+}
+
 fn main() -> Result<()> {
     let filename: String = env::args()
         .nth(1)
@@ -67,47 +93,24 @@ fn main() -> Result<()> {
                         address: line.offset + start_addr,
                         instructions: vec![],
                     });
-                    if let Some((t, v)) = line.get_argument()?.split_once('\'') {
-                        let mut bytes = match t {
-                            "X" => {
-                                let bytes = v[..v.len() - 1]
-                                    .chars()
-                                    .collect::<Vec<char>>()
-                                    .chunks(2)
-                                    .map(|c| c.iter().collect::<String>())
-                                    .map(|s| u8::from_str_radix(&s, 16))
-                                    .collect::<Result<Vec<_>, _>>()?;
-                                bytes
-                            }
-                            "C" => {
-                                let bytes = v[..v.len() - 1]
-                                    .chars()
-                                    .map(|c| c as u8)
-                                    .collect::<Vec<_>>();
-                                bytes
-                            }
-                            _ => return Err(anyhow::Error::msg("Invalid byte argument")),
-                        };
-                        while !bytes.is_empty() {
-                            let space_remaining = 30 - text.len();
-                            if space_remaining < bytes.len() {
-                                let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
-                                let new_bytes = new_text.len();
-                                text.instructions.push(Data::Byte(new_text));
-                                records.push(Record::Text(text));
-                                text = Text {
-                                    address: line.offset + start_addr + new_bytes,
-                                    instructions: vec![],
-                                };
-                            } else {
-                                text.instructions.push(Data::Byte(bytes));
-                                break;
-                            }
+                    let mut bytes = parse_literal(line.get_argument()?)?;
+                    while !bytes.is_empty() {
+                        let space_remaining = 30 - text.len();
+                        if space_remaining < bytes.len() {
+                            let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
+                            let new_bytes = new_text.len();
+                            text.instructions.push(Data::Byte(new_text));
+                            records.push(Record::Text(text));
+                            text = Text {
+                                address: line.offset + start_addr + new_bytes,
+                                instructions: vec![],
+                            };
+                        } else {
+                            text.instructions.push(Data::Byte(bytes));
+                            break;
                         }
-                        cur_text = Some(text);
-                    } else {
-                        return Err(anyhow::Error::msg("Invalid byte argument"));
                     }
+                    cur_text = Some(text);
                 }
                 Assembler::WORD => {
                     let mut text = text.unwrap_or_else(|| Text {

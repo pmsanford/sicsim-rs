@@ -2,7 +2,7 @@ use anyhow::Result;
 use constants::register;
 use directive::{Assembler, Directive};
 use libsic::xe::op::{AddressMode, AddressRelativeTo, OneReg, Op, Shift, TwoReg, Variable};
-use line::PassOne;
+use line::FirstPass;
 use record::{Data, Modification, Record, Text};
 use std::{
     env,
@@ -25,10 +25,10 @@ fn main() -> Result<()> {
     let lines = BufReader::new(file)
         .lines()
         .collect::<Result<Vec<_>, _>>()?;
-    let (labels, lines) = PassOne::parse_lines(&lines)?;
+    let pass_one = FirstPass::parse_lines(&lines)?;
 
-    let start = &lines[0];
-    let end = &lines[lines.len() - 1];
+    let start = &pass_one.parsed_lines[0];
+    let end = &pass_one.parsed_lines[lines.len() - 1];
 
     if start.directive != Directive::Assembler(Assembler::START) {
         return Err(anyhow::Error::msg("Expected start directive"));
@@ -50,19 +50,16 @@ fn main() -> Result<()> {
         length,
     });
 
-    let mut i = 1;
-
     let mut cur_text = None;
     let mut cur_base = None;
 
-    while i < lines.len() {
-        let line = &lines[i];
+    for line in pass_one.parsed_lines.iter() {
         let text = cur_text.take();
         match line.directive {
             Directive::Assembler(asm) => match asm {
                 Assembler::START => {}
                 Assembler::BASE => {
-                    cur_base = Some(labels.get(line.get_argument()?)?);
+                    cur_base = Some(pass_one.labels.get(line.get_argument()?)?);
                     cur_text = text;
                 }
                 Assembler::BYTE => {
@@ -226,7 +223,7 @@ fn main() -> Result<()> {
                     instructions: vec![],
                 });
 
-                let (address, address_flags) = line.parse_flags(cur_base, &labels)?;
+                let (address, address_flags) = line.parse_flags(cur_base, &pass_one.labels)?;
 
                 if address_flags.mode != AddressMode::Immediate
                     && address_flags.relative_to == AddressRelativeTo::Direct
@@ -278,7 +275,6 @@ fn main() -> Result<()> {
                 cur_text = Some(text);
             }
         };
-        i += 1;
     }
 
     for modification in modifications {
@@ -286,7 +282,7 @@ fn main() -> Result<()> {
     }
 
     records.push(Record::End {
-        first_instruction: labels.get(end.get_argument()?)? + start_addr,
+        first_instruction: pass_one.labels.get(end.get_argument()?)? + start_addr,
     });
 
     for record in records {

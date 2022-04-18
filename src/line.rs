@@ -3,9 +3,14 @@ use anyhow::Result;
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
 
-pub struct PassOne {
+pub struct FirstPass {
     cur_offset: usize,
     labels: Labels,
+}
+
+pub struct PassOne {
+    pub parsed_lines: Vec<ParsedLine>,
+    pub labels: Labels,
 }
 
 use crate::{
@@ -159,7 +164,7 @@ impl ParsedLine {
     }
 }
 
-impl PassOne {
+impl FirstPass {
     fn new() -> Self {
         Self {
             cur_offset: 0,
@@ -167,14 +172,17 @@ impl PassOne {
         }
     }
 
-    pub fn parse_lines(lines: &[String]) -> Result<(Labels, Vec<ParsedLine>)> {
+    pub fn parse_lines(lines: &[String]) -> Result<PassOne> {
         let mut pass = Self::new();
         let lines = lines
             .iter()
             .filter_map(|line| pass.parse_line(line).transpose())
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok((pass.labels, lines))
+        Ok(PassOne {
+            parsed_lines: lines,
+            labels: pass.labels,
+        })
     }
 
     fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {

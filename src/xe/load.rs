@@ -105,7 +105,7 @@ pub fn load_program(program_text: &str) -> Program {
     let mut text = vec![];
     let mut modifications = vec![];
     for line in lines[1..lines.len() - 1].iter() {
-        if let Some(ty) = line.chars().nth(0) {
+        if let Some(ty) = line.chars().next() {
             match ty {
                 'T' => text.push(Text::from_record(line)),
                 'M' => modifications.push(Modification::from_record(line)),

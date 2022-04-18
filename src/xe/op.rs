@@ -194,6 +194,7 @@ fn calc_address(bytes: [u8; 4], flags: &AddressFlags) -> u32 {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl Op {
     pub fn len(&self) -> u32 {
         match self {
@@ -325,24 +326,23 @@ impl Op {
 
 pub fn is_privileged(op: &Op) -> bool {
     match op {
-        Op::OneByte(one_byte) => match one_byte {
-            OneByteOp::SIO | OneByteOp::TIO | OneByteOp::HIO => true,
-            _ => false,
-        },
+        Op::OneByte(one_byte) => {
+            matches!(one_byte, OneByteOp::SIO | OneByteOp::TIO | OneByteOp::HIO)
+        }
         Op::OneReg(_) => false,
         Op::TwoReg(_) => false,
         Op::Shift(_) => false,
         Op::Svc(_) => true,
-        Op::Variable(Variable { opcode, .. }) => match opcode {
+        Op::Variable(Variable { opcode, .. }) => matches!(
+            opcode,
             VariableOp::LPS
-            | VariableOp::RD
-            | VariableOp::SSK
-            | VariableOp::STI
-            | VariableOp::STSW
-            | VariableOp::TD
-            | VariableOp::WD => true,
-            _ => false,
-        },
+                | VariableOp::RD
+                | VariableOp::SSK
+                | VariableOp::STI
+                | VariableOp::STSW
+                | VariableOp::TD
+                | VariableOp::WD
+        ),
     }
 }
 

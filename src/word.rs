@@ -45,7 +45,7 @@ impl DWordExt for DWord {
         // So now we'll iterate through the bits, summing up the exponentiations.
         for i in 0..36 {
             if (fraction << i) & U64_TOP_BIT > 0 {
-                sum = sum + 2f64.powf((-1 * (i + 1)) as f64);
+                sum += 2f64.powf((-(i + 1)) as f64);
             }
         }
 
@@ -89,16 +89,16 @@ fn frac_to_binary(fraction: f64) -> u64 {
     let mut binary = 0;
     let mut counter = 0;
     while current != 0.0 && counter < 36 {
-        current = current * 2.0;
-        binary = binary << 1;
+        current *= 2.0;
+        binary <<= 1;
         counter += 1;
         if current >= 1.0 {
             binary += 1;
         }
-        current = current % 1.0;
+        current %= 1.0;
     }
 
-    binary = binary << (64 - counter);
+    binary <<= 64 - counter;
 
     binary
 }
@@ -133,9 +133,8 @@ pub fn f64_to_dword(f: f64) -> DWord {
     // This is the part to the right
     let fraction = frac_to_binary(f);
     let mut exponent: i16 = 0;
-    let lower_bytes: [u8; 5];
 
-    if integer > 0 {
+    let lower_bytes = if integer > 0 {
         // First case: our number is >= 1
         // We have to get everything to the right of the decimal
         let mut shifted = integer;
@@ -143,29 +142,29 @@ pub fn f64_to_dword(f: f64) -> DWord {
         // We count how many shifts we need to get rid of all the bits
         // we have in the integer portion.
         while shifted > 0 {
-            shifted = shifted >> 1;
+            shifted >>= 1;
             exponent += 1;
         }
         // We offset by -4 here to account for the half byte taken up by the exponent in our
         // representaiton
         let [a, b, c, d, e, _, _, _] =
-            ((integer << (64 - 4 - exponent)) + (fraction >> exponent + 4)).to_be_bytes();
-        lower_bytes = [a, b, c, d, e];
+            ((integer << (64 - 4 - exponent)) + (fraction >> (exponent + 4))).to_be_bytes();
+        [a, b, c, d, e]
     } else {
         // Second case: our number is < 1
         let mut shifted = fraction;
 
         // We rely on shifting everything off the left end
         while shifted & U64_TOP_BIT == 0 {
-            shifted = shifted << 1;
+            shifted <<= 1;
             exponent -= 1;
         }
 
         // We offset by -4 here to account for the half byte taken up by the exponent in our
         // representaiton
         let [a, b, c, d, e, _, _, _] = ((fraction >> 4) << exponent.abs()).to_be_bytes();
-        lower_bytes = [a, b, c, d, e];
-    }
+        [a, b, c, d, e]
+    };
 
     let [exp_u, exp_l] = i16_to_exponent(exponent);
 

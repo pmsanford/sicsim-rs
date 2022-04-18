@@ -14,7 +14,7 @@ static MAX_PC: u16 = 2047; // 0x07_FF
 static MIN_PC: i16 = -2048; // 0x08_00
 
 fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
-    if let Some(dir) = Directive::from_str(&directive.replace("+", "")) {
+    if let Some(dir) = Directive::from_str(&directive.replace('+', "")) {
         Ok(match dir {
             Directive::Assembler(asm) => match asm {
                 Assembler::START | Assembler::END | Assembler::BASE => 0,
@@ -50,7 +50,7 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
             Directive::Shift(_) => 2,
             Directive::SVC => 2,
             Directive::Variable(_) => {
-                if directive.starts_with("+") {
+                if directive.starts_with('+') {
                     4
                 } else {
                     3
@@ -81,12 +81,12 @@ impl ParsedLine {
             if argument.ends_with(",X") {
                 argument = argument[..argument.len() - 2].to_owned();
             }
-            if argument.starts_with("#") && Regex::new("[0-9][0-9]*")?.is_match(&argument[1..]) {
+            if argument.starts_with('#') && Regex::new("[0-9][0-9]*")?.is_match(&argument[1..]) {
                 return Ok(Some(argument[1..].parse().map_err(|e| {
                     anyhow::Error::msg("Couldn't parse immediate arg").context(e)
                 })?));
             }
-            if argument.starts_with("#") || argument.starts_with("@") {
+            if argument.starts_with('#') || argument.starts_with('@') {
                 argument = argument[1..].to_owned();
             }
 
@@ -98,13 +98,12 @@ impl ParsedLine {
 
     pub fn get_argument(&self) -> Result<&str> {
         self.argument
-            .as_ref()
-            .map(|s| s.as_str())
+            .as_deref()
             .ok_or_else(|| anyhow::Error::msg(format!("{:?} requires an argument", self.directive)))
     }
 
     pub fn parse_flags(&self, base: Option<usize>, labels: &Labels) -> Result<(u32, AddressFlags)> {
-        let mode = match self.argument.as_ref().map(|a| a.chars().next()).flatten() {
+        let mode = match self.argument.as_ref().and_then(|a| a.chars().next()) {
             Some('#') => AddressMode::Immediate,
             Some('@') => AddressMode::Indirect,
             _ => AddressMode::Simple,
@@ -122,10 +121,8 @@ impl ParsedLine {
             target.ok_or_else(|| anyhow::Error::msg("Expected target"))?
         };
         let pc = self.offset + 3;
-        let (disp, relative_to) = if mode == AddressMode::Immediate {
-            (target, AddressRelativeTo::Direct)
-        } else if self.extended {
-            // Extended
+        let (disp, relative_to) = if mode == AddressMode::Immediate || self.extended {
+            // Immediate or extended
             (target, AddressRelativeTo::Direct)
         } else if (target as i32) - (pc as i32) < (MAX_PC as i32)
             && target as i32 - pc as i32 > MIN_PC as i32
@@ -167,11 +164,11 @@ pub fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
                 .ok_or_else(|| anyhow::Error::msg("Expected a 'directive' capture"))?;
             let argument = cap
                 .name("argument")
-                .filter(|m| m.as_str().len() > 0)
+                .filter(|m| !m.as_str().is_empty())
                 .map(|m| m.as_str().to_owned());
 
             let directive =
-                Directive::from_str(&raw_directive.replace("+", "")).ok_or_else(|| {
+                Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
                     anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
                 })?;
 
@@ -180,7 +177,7 @@ pub fn parse_line(line: &str, offset: usize) -> Result<Option<ParsedLine>> {
             Ok(ParsedLine {
                 label: cap.name("label").map(|m| m.as_str().to_owned()),
                 directive,
-                extended: raw_directive.starts_with("+"),
+                extended: raw_directive.starts_with('+'),
                 argument,
                 size,
                 offset,

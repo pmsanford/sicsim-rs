@@ -19,8 +19,7 @@ mod record;
 
 fn main() -> Result<()> {
     let filename: String = env::args()
-        .skip(1)
-        .next()
+        .nth(1)
         .ok_or_else(|| anyhow::Error::msg("Need a filename"))?;
     let file = File::open(filename)?;
 
@@ -83,7 +82,7 @@ fn main() -> Result<()> {
                         address: line.offset + start_addr,
                         instructions: vec![],
                     });
-                    if let Some((t, v)) = line.get_argument()?.split_once("'") {
+                    if let Some((t, v)) = line.get_argument()?.split_once('\'') {
                         let mut bytes = match t {
                             "X" => {
                                 let bytes = v[..v.len() - 1]
@@ -104,7 +103,7 @@ fn main() -> Result<()> {
                             }
                             _ => return Err(anyhow::Error::msg("Invalid byte argument")),
                         };
-                        while bytes.len() > 0 {
+                        while !bytes.is_empty() {
                             let space_remaining = 30 - text.len();
                             if space_remaining < bytes.len() {
                                 let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
@@ -138,8 +137,7 @@ fn main() -> Result<()> {
                         };
                     }
                     let argument = line.get_argument()?;
-                    text.instructions
-                        .push(Data::Word(u32::from_str_radix(&argument, 10)?));
+                    text.instructions.push(Data::Word(argument.parse()?));
                     cur_text = Some(text);
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {
@@ -198,7 +196,7 @@ fn main() -> Result<()> {
 
                 let (r1s, r2s) = line
                     .get_argument()?
-                    .split_once(",")
+                    .split_once(',')
                     .ok_or_else(|| anyhow::Error::msg("Malformed TwoReg argument"))?;
                 let r1 = register(r1s)?;
                 let r2 = register(r2s)?;
@@ -224,7 +222,7 @@ fn main() -> Result<()> {
 
                 let (r1s, ns) = line
                     .get_argument()?
-                    .split_once(",")
+                    .split_once(',')
                     .ok_or_else(|| anyhow::Error::msg("Malformed TwoReg argument"))?;
                 let r1 = register(r1s)?;
                 let n: u8 = ns.parse()?;

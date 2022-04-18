@@ -1,5 +1,6 @@
 use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp};
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Assembler {
     START,
@@ -11,6 +12,7 @@ pub enum Assembler {
     END,
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Directive {
     Assembler(Assembler),

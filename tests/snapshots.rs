@@ -23,3 +23,11 @@ fn test_org() {
 
     insta::assert_yaml_snapshot!(assembled);
 }
+
+#[test]
+fn test_word_label_vals() {
+    let program_text = include_str!("../programs/word_label.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}

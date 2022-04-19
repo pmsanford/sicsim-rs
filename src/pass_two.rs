@@ -143,7 +143,12 @@ impl PassTwo {
                         };
                     }
                     let argument = line.get_argument()?;
-                    text.instructions.push(Data::Word(argument.parse()?));
+                    let val = if argument.chars().all(char::is_numeric) {
+                        argument.parse::<u32>()?
+                    } else {
+                        self.pass_one.labels.get(argument)? as u32
+                    };
+                    text.instructions.push(Data::Word(val));
                     self.cur_text = Some(text);
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {

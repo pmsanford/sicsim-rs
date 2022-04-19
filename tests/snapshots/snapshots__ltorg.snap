@@ -1,0 +1,6 @@
+---
+source: tests/snapshots.rs
+expression: assembled
+---
+"HLTOR  000000000015\nT000000180320066F20063F20064869214142437720033F2FFD444546\nE000000\n"
+

@@ -7,3 +7,11 @@ fn test_ltorg() {
 
     insta::assert_yaml_snapshot!(assembled);
 }
+
+#[test]
+fn test_copy_xe() {
+    let program_text = include_str!("../programs/copy.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}

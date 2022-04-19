@@ -49,6 +49,7 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
                         .ok_or_else(|| anyhow::Error::msg("Byte directive requires argument"))?;
                     literal_size(argument)?
                 }
+                Assembler::EQU => 0,
                 Assembler::WORD => 3,
                 // Implemented in the caller
                 Assembler::LTORG => unimplemented!(),
@@ -226,6 +227,42 @@ impl FirstPass {
         })
     }
 
+    fn equ_val(&self, label: &str) -> Result<usize> {
+        Ok(if label == "*" {
+            self.cur_offset
+        } else if label.chars().all(char::is_numeric) {
+            label.parse::<usize>()?
+        } else {
+            self.labels.get(label)?
+        })
+    }
+
+    fn calc_expr(&self, argument: &str) -> Result<usize> {
+        //TODO: This only supports already defined symbols
+        let split = argument.split_inclusive(&['+', '-']).collect::<Vec<_>>();
+        let mut components =
+            split[..split.len() - 1]
+                .iter()
+                .fold(Vec::new(), |mut components, component| {
+                    components.push(component[..component.len() - 1].trim().to_owned());
+                    components.push(component[component.len() - 1..].to_owned());
+                    components
+                });
+        components.push(split[split.len() - 1].to_owned());
+
+        let mut value = self.equ_val(&components[0])?;
+
+        for chunk in components[1..].chunks(2) {
+            match &*chunk[0] {
+                "+" => value += self.equ_val(&chunk[1])?,
+                "-" => value -= self.equ_val(&chunk[1])?,
+                _ => return Err(anyhow::Error::msg("Only supports + or -")),
+            }
+        }
+
+        Ok(value)
+    }
+
     fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
         line_regex()
             .captures(line)
@@ -256,11 +293,21 @@ impl FirstPass {
                 };
 
                 let offset = self.cur_offset;
-                self.cur_offset += size;
                 let label = cap.name("label").map(|m| m.as_str().to_owned());
 
                 if let Some(label) = label.as_ref() {
-                    self.labels.add(label.clone(), offset);
+                    if directive == Directive::Assembler(Assembler::EQU) {
+                        self.labels.add(
+                            label.clone(),
+                            self.calc_expr(
+                                argument
+                                    .as_ref()
+                                    .ok_or_else(|| anyhow::Error::msg("EQU requires argument"))?,
+                            )?,
+                        );
+                    } else {
+                        self.labels.add(label.clone(), offset);
+                    }
                 }
 
                 let literal_offset = if argument
@@ -275,6 +322,8 @@ impl FirstPass {
                 } else {
                     None
                 };
+
+                self.cur_offset += size;
 
                 Ok(ParsedLine {
                     label,

@@ -94,6 +94,7 @@ pub fn pass_two(pass_one: &PassOne) -> Result<Vec<Record>> {
                     }
                     cur_text = Some(text);
                 }
+                Assembler::EQU => {}
                 Assembler::LTORG => {
                     let mut text = text.unwrap_or_else(|| Text {
                         address: line.offset + start_addr,

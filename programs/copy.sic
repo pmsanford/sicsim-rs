@@ -18,8 +18,8 @@ ENDFIL   LDA      =C'EOF'              INSERT END OF FILE MARKER
 RETADR   RESW      1
 LENGTH   RESW      1                   LENGTH OF RECORD
 BUFFER   RESB      4096                4096-BYTE BUFFER AREA
-BUFEND   EQU       .
-MAXLEN   EQU       BUFEND-BUFER        MAXIMUM RECORD LENGTH
+BUFEND   EQU       *
+MAXLEN   EQU       BUFEND-BUFFER        MAXIMUM RECORD LENGTH
 .
 . SUBROUTINE TO READ RECORD INTO BUFFER
 .
@@ -36,18 +36,18 @@ RLOOP    TD        INPUT               TEST INPUT DEVICE
          TIXR      T                   LOOP UNLESS MAX LENGTH
          JLT       RLOOP               HAS BEEN REACHED
 EXIT     STX       LENGTH              SAVE RECORD LENGTH
-         RSUB                          RETURN TO CALLER
-INPUT    BYTE      X'FI1'              CODE FOR INPUT DEVICE
+         RSUB                          
+INPUT    BYTE      X'F1'               CODE FOR INPUT DEVICE
 .
 . SUBROUTINE TO WRITE RECORD FROM BUFFER
 .
 WRREC    CLEAR     X                   CLEAR LOOP COUNTER
          LDT       LENGTH
-WLOOP    TD       =X’05’               TEST OUTPUT DEVICE
+WLOOP    TD       =X'05'               TEST OUTPUT DEVICE
          JEQ       WLOOP               LOOP UNTIL READY
          LDCH      BUFFER,X            GET CHARACTER FROM BUFFER
-         WD       =X‘05’               WRITE CHARACTER
+         WD       =X'05'               WRITE CHARACTER
          TIXR      T                   LOOP UNTIL ALL CHARACTERS
          JLT       WLOOP               HAVE BEEN WRITTEN
-         RSUB                          RETURN TO CALLER
+         RSUB                          
          END       FIRST

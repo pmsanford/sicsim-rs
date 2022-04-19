@@ -1,0 +1,10 @@
+TEQU    START   0
+        LDA    #LENGTH
+        LDS    #BUFFER
+        LDT    #SVAL
+DONE    J       DONE
+BUFFER  RESB    256
+BUFEND  EQU     *
+LENGTH  EQU     BUFEND-BUFFER
+SVAL    EQU     BUFFER+3
+        END     TEQU

@@ -196,7 +196,7 @@ impl FirstPass {
         }
     }
 
-    pub fn parse_lines(lines: &[String]) -> Result<PassOne> {
+    pub fn parse_lines(lines: &[&str]) -> Result<PassOne> {
         let mut pass = Self::new();
         let mut lines = lines
             .iter()

@@ -14,7 +14,7 @@ pub fn assemble_program(program_text: &str) -> Result<String> {
     let lines = program_text.lines().collect::<Vec<_>>();
     let pass_one = FirstPass::parse_lines(&lines)?;
 
-    let records = pass_two(&pass_one)?;
+    let records = pass_two(pass_one)?;
 
     let mut assembled = String::new();
 

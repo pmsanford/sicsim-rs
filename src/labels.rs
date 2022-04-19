@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
+#[derive(Debug, Clone)]
 pub struct Labels {
     labels: HashMap<String, usize>,
 }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
@@ -51,6 +51,7 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
                 }
                 Assembler::EQU => 0,
                 Assembler::WORD => 3,
+                Assembler::ORG => 0,
                 // Implemented in the caller
                 Assembler::LTORG => unimplemented!(),
                 Assembler::RESW => {
@@ -85,7 +86,7 @@ fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedLine {
     pub label: Option<String>,
     pub directive: Directive,
@@ -201,7 +202,12 @@ impl FirstPass {
         let mut pass = Self::new();
         let mut lines = lines
             .iter()
-            .filter_map(|line| pass.parse_line(line).transpose())
+            .enumerate()
+            .filter_map(|(line_no, line)| {
+                pass.parse_line(line)
+                    .context(format!("Parse error on line {}", line_no))
+                    .transpose()
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         if pass.literal_size > 0 {
@@ -227,7 +233,7 @@ impl FirstPass {
         })
     }
 
-    fn equ_val(&self, label: &str) -> Result<usize> {
+    fn label_val(&self, label: &str) -> Result<usize> {
         Ok(if label == "*" {
             self.cur_offset
         } else if label.chars().all(char::is_numeric) {
@@ -250,12 +256,12 @@ impl FirstPass {
                 });
         components.push(split[split.len() - 1].to_owned());
 
-        let mut value = self.equ_val(&components[0])?;
+        let mut value = self.label_val(&components[0])?;
 
         for chunk in components[1..].chunks(2) {
             match &*chunk[0] {
-                "+" => value += self.equ_val(&chunk[1])?,
-                "-" => value -= self.equ_val(&chunk[1])?,
+                "+" => value += self.label_val(&chunk[1])?,
+                "-" => value -= self.label_val(&chunk[1])?,
                 _ => return Err(anyhow::Error::msg("Only supports + or -")),
             }
         }
@@ -280,6 +286,14 @@ impl FirstPass {
                     Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
                         anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
                     })?;
+
+                if directive == Directive::Assembler(Assembler::ORG) {
+                    self.cur_offset = self.label_val(
+                        argument
+                            .as_ref()
+                            .ok_or_else(|| anyhow::Error::msg("ORG requires argument"))?,
+                    )?;
+                }
 
                 let size = if directive == Directive::Assembler(Assembler::LTORG) {
                     let cur_size = self.literal_size;

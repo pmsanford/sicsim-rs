@@ -7,6 +7,7 @@ pub enum Assembler {
     BASE,
     BYTE,
     LTORG,
+    ORG,
     EQU,
     WORD,
     RESW,

@@ -35,6 +35,7 @@ impl Directive {
             "BYTE" => Some(Self::Assembler(Assembler::BYTE)),
             "WORD" => Some(Self::Assembler(Assembler::WORD)),
             "LTORG" => Some(Self::Assembler(Assembler::LTORG)),
+            "ORG" => Some(Self::Assembler(Assembler::ORG)),
             "EQU" => Some(Self::Assembler(Assembler::EQU)),
             "RESW" => Some(Self::Assembler(Assembler::RESW)),
             "RESB" => Some(Self::Assembler(Assembler::RESB)),

@@ -15,3 +15,11 @@ fn test_copy_xe() {
 
     insta::assert_yaml_snapshot!(assembled);
 }
+
+#[test]
+fn test_org() {
+    let program_text = include_str!("../programs/org.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}

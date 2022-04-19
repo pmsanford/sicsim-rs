@@ -288,7 +288,7 @@ impl FirstPass {
                     })?;
 
                 if directive == Directive::Assembler(Assembler::ORG) {
-                    self.cur_offset = self.label_val(
+                    self.cur_offset = self.calc_expr(
                         argument
                             .as_ref()
                             .ok_or_else(|| anyhow::Error::msg("ORG requires argument"))?,

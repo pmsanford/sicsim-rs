@@ -3,7 +3,7 @@ use libsic::{
     word::u32_to_word,
     xe::vm::StopReason,
     xe::{
-        load::{load_program_at, load_program_to, vm_with_program},
+        load::{load_program_at, load_program_to, vm_with_program, vm_with_program_at},
         op::AddressFlags,
     },
     WordExt,
@@ -15,7 +15,8 @@ fn test_interrupt() {
     let test_program = include_str!("../programs/xe/call_svc.ebj");
     let mut vm = vm_with_program(test_program);
     load_program_at(&mut vm, interrupt_handler, 1000);
-    vm.set_at(0x103, &AddressFlags::immediate(), u32_to_word(1000));
+    vm.set_at(0x103, &AddressFlags::immediate(), u32_to_word(1000))
+        .unwrap();
     let (output_buffer, output_device) = MemoryOutputDevice::new();
     vm.add_device(Box::new(output_device), 0x01);
     assert_eq!(vm.run_until(100), StopReason::Halted);
@@ -25,6 +26,28 @@ fn test_interrupt() {
     assert_eq!(vm.S.as_u32(), 1);
     assert_eq!(vm.T.as_u32(), 10);
     assert_eq!(vm.X.as_u32(), 0);
+}
+
+#[test]
+fn test_oor() {
+    let interrupt_handler = include_str!("../programs/xe/prog_int.ebj");
+    let test_program = include_str!("../programs/xe/out_of_range.ebj");
+    let start_pc = (1 << 20) - 10;
+    let mut vm = vm_with_program_at(test_program, start_pc);
+    load_program_at(&mut vm, interrupt_handler, 1000);
+    vm.set_at(0x133, &AddressFlags::immediate(), u32_to_word(1000))
+        .unwrap();
+    println!(
+        "start_pc: {} memory: {:0>2X} {:0>2X} {:0>2X}",
+        start_pc,
+        &vm.memory[start_pc as usize],
+        &vm.memory[start_pc as usize + 1],
+        &vm.memory[start_pc as usize + 2],
+    );
+    let stop = vm.run_until(100);
+    assert_eq!(stop, StopReason::Halted);
+    assert_eq!(vm.A.as_u32(), 1048569);
+    assert_eq!(vm.PC.as_u32(), 1004);
 }
 
 #[test]

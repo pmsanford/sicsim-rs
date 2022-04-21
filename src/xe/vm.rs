@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 use super::op::{
     is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
     ShiftOp, TwoRegOp, VariableOp,
@@ -47,10 +49,20 @@ fn simple_addr_signed(addr: u32) -> i32 {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum OpError {
+    #[error("Address {address:0>6X} out of range")]
+    AddressOutOfRange { address: usize },
+    #[error("Invalid instruction at address {address:0>6X}")]
+    InvalidInstruction { address: usize },
+}
+
+static MEMORY_SIZE: usize = 1 << 20;
+
 impl SicXeVm {
     pub fn empty() -> Self {
         Self {
-            memory: vec![0; 1 << 20],
+            memory: vec![0; MEMORY_SIZE],
             A: [0; 3],
             X: [0; 3],
             L: [0; 3],
@@ -102,8 +114,8 @@ impl SicXeVm {
         address + idx
     }
 
-    fn calc_addr(&self, argument: u32, flags: &AddressFlags) -> u32 {
-        match flags.mode {
+    fn calc_addr(&self, argument: u32, flags: &AddressFlags) -> Result<u32, OpError> {
+        Ok(match flags.mode {
             AddressMode::Compatiblity => self.index_addr(argument, flags),
             AddressMode::Simple => match flags.relative_to {
                 AddressRelativeTo::Direct => self.index_addr(argument, flags),
@@ -119,51 +131,62 @@ impl SicXeVm {
                 AddressRelativeTo::PC => (self.PC.as_i32() + simple_addr_signed(argument)) as u32,
             },
             AddressMode::Indirect => match flags.relative_to {
-                AddressRelativeTo::Direct => self.word_at(argument).as_u32(),
-                AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument).as_u32(),
+                AddressRelativeTo::Direct => self.word_at(argument)?.as_u32(),
+                AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument)?.as_u32(),
                 AddressRelativeTo::PC => self
-                    .word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32)
+                    .word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32)?
                     .as_u32(),
             },
-        }
+        })
     }
 
-    fn fetch_word(&self, argument: u32, flags: &AddressFlags) -> Word {
-        let address = self.calc_addr(argument, flags);
+    fn fetch_word(&self, argument: u32, flags: &AddressFlags) -> Result<Word, OpError> {
+        let address = self.calc_addr(argument, flags)?;
         if flags.mode == AddressMode::Immediate {
-            u32_to_word(address)
+            Ok(u32_to_word(address))
         } else {
             self.word_at(address)
         }
     }
 
-    fn fetch_dword(&self, argument: u32, flags: &AddressFlags) -> DWord {
-        let address = self.calc_addr(argument, flags);
+    fn fetch_dword(&self, argument: u32, flags: &AddressFlags) -> Result<DWord, OpError> {
+        let address = self.calc_addr(argument, flags)?;
         if flags.mode == AddressMode::Immediate {
-            u32_to_dword(address)
+            Ok(u32_to_dword(address))
         } else {
             self.dword_at(address)
         }
     }
 
-    fn word_at(&self, address: u32) -> Word {
+    fn check_address_range(&self, address: usize) -> Result<(), OpError> {
+        if address >= MEMORY_SIZE {
+            Err(OpError::AddressOutOfRange { address })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn word_at(&self, address: u32) -> Result<Word, OpError> {
         let address = address as usize;
-        [
+        self.check_address_range(address + 2)?;
+        Ok([
             self.memory[address],
             self.memory[address + 1],
             self.memory[address + 2],
-        ]
+        ])
     }
 
-    fn dword_at(&self, address: u32) -> DWord {
-        [
+    fn dword_at(&self, address: u32) -> Result<DWord, OpError> {
+        let address = address as usize;
+        self.check_address_range(address + 5)?;
+        Ok([
             self.memory[address as usize],
             self.memory[address as usize + 1],
             self.memory[address as usize + 2],
             self.memory[address as usize + 3],
             self.memory[address as usize + 4],
             self.memory[address as usize + 5],
-        ]
+        ])
     }
 
     fn set_register(&mut self, register: &Register, value: Word) {
@@ -198,37 +221,60 @@ impl SicXeVm {
         }
     }
 
-    pub fn set_at(&mut self, address: u32, flags: &AddressFlags, value: Word) {
+    pub fn set_at(
+        &mut self,
+        address: u32,
+        flags: &AddressFlags,
+        value: Word,
+    ) -> Result<(), OpError> {
         //TODO: What does immediate mean here
-        let address = self.calc_addr(address, flags);
+        let address = self.calc_addr(address, flags)?;
         self.memory[address as usize] = value[0];
         self.memory[address as usize + 1] = value[1];
         self.memory[address as usize + 2] = value[2];
+
+        Ok(())
     }
 
-    fn set_dword_at(&mut self, address: u32, flags: &AddressFlags, value: DWord) {
+    fn set_dword_at(
+        &mut self,
+        address: u32,
+        flags: &AddressFlags,
+        value: DWord,
+    ) -> Result<(), OpError> {
         //TODO: What does immediate mean here
-        let address = self.calc_addr(address, flags);
+        let address = self.calc_addr(address, flags)?;
         self.memory[address as usize] = value[0];
         self.memory[address as usize + 1] = value[1];
         self.memory[address as usize + 2] = value[2];
         self.memory[address as usize + 3] = value[3];
         self.memory[address as usize + 4] = value[4];
         self.memory[address as usize + 5] = value[5];
+
+        Ok(())
     }
 
     fn pc_address(&self) -> u32 {
-        u32::from_be_bytes([0, 0, self.PC[1], self.PC[2]])
+        self.PC.as_u32()
     }
 
-    fn comp(&mut self, register: Word, address: u32, flags: &AddressFlags) {
-        let memory = self.fetch_word(address, flags);
+    fn comp(&mut self, register: Word, address: u32, flags: &AddressFlags) -> Result<(), OpError> {
+        let memory = self.fetch_word(address, flags)?;
         set_cc(&mut self.SW, register.cmp(&memory));
+
+        Ok(())
     }
 
-    fn compf(&mut self, register: DWord, address: u32, flags: &AddressFlags) {
-        let memory = self.fetch_dword(address, flags);
+    fn compf(
+        &mut self,
+        register: DWord,
+        address: u32,
+        flags: &AddressFlags,
+    ) -> Result<(), OpError> {
+        let memory = self.fetch_dword(address, flags)?;
         set_cc(&mut self.SW, register.cmp(&memory));
+
+        Ok(())
     }
 
     fn compr(&mut self, r1: &Register, r2: &Register) {
@@ -255,92 +301,116 @@ impl SicXeVm {
         }
     }
 
-    fn get_op_at_pc(&self) -> Option<Op> {
+    fn get_op_at_pc(&self) -> Result<Op, OpError> {
         let pc = self.pc_address() as usize;
+        self.check_address_range(pc + 3)?;
         let bytes = [
             self.memory[pc],
             self.memory[pc + 1],
             self.memory[pc + 2],
             self.memory[pc + 3],
         ];
-        Op::from_bytes(bytes)
+        Op::from_bytes(bytes).ok_or(OpError::InvalidInstruction { address: pc })
+    }
+
+    fn program_interrupt(&mut self, error: OpError) {
+        match error {
+            OpError::AddressOutOfRange { .. } => {
+                // Code 02 = Address out of range
+                self.SW[2] = 2;
+                self.handle_interrupt(Interrupt::Program)
+                    .expect("Error in interrupt handler");
+            }
+            OpError::InvalidInstruction { .. } => {
+                // Code 00 = Illegal instruction
+                self.SW[2] = 0;
+                self.handle_interrupt(Interrupt::Program)
+                    .expect("Error in interrupt handler");
+            }
+        }
     }
 
     pub fn step(&mut self) {
         let op = self.get_op_at_pc();
+        println!("PC: {} OP: {:?}", self.PC.as_u32(), op);
         if op.as_ref().map(is_privileged).unwrap_or(false) && !supervisor_mode(&self.SW) {
             // TODO: Interrupt, privileged instruction
         }
-        if let Some(op) = op {
-            self.PC = u32_to_word(self.PC.as_u32() + op.len());
-            self.run_op(op);
-        } else {
-            self.PC = u32_to_word(self.PC.as_u32() + 1);
+        match op {
+            Ok(op) => {
+                self.PC = u32_to_word(self.PC.as_u32() + op.len());
+                if let Err(err) = self.run_op(op) {
+                    self.program_interrupt(err);
+                }
+            }
+            Err(error) => {
+                self.program_interrupt(error);
+            }
         }
     }
 
-    fn run_op(&mut self, op: Op) {
+    fn run_op(&mut self, op: Op) -> Result<(), OpError> {
         match op {
             Op::Variable(op) => {
                 match op.opcode {
                     // Load/store
                     VariableOp::LDA => {
-                        self.A = self.fetch_word(op.address, &op.address_flags);
+                        self.A = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STA => {
-                        self.set_at(op.address, &op.address_flags, self.A);
+                        self.set_at(op.address, &op.address_flags, self.A)?;
                     }
                     VariableOp::LDCH => {
-                        let address = self.calc_addr(op.address, &op.address_flags);
+                        let address = self.calc_addr(op.address, &op.address_flags)?;
                         self.A[2] = self.memory[address as usize];
                     }
                     VariableOp::STCH => {
-                        let address = self.calc_addr(op.address, &op.address_flags);
+                        let address = self.calc_addr(op.address, &op.address_flags)?;
                         self.memory[address as usize] = self.A[2];
                     }
                     VariableOp::LDL => {
-                        self.L = self.fetch_word(op.address, &op.address_flags);
+                        self.L = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STL => {
-                        self.set_at(op.address, &op.address_flags, self.L);
+                        self.set_at(op.address, &op.address_flags, self.L)?;
                     }
                     VariableOp::LDB => {
-                        self.B = self.fetch_word(op.address, &op.address_flags);
+                        self.B = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STB => {
-                        self.set_at(op.address, &op.address_flags, self.B);
+                        self.set_at(op.address, &op.address_flags, self.B)?;
                     }
                     VariableOp::LDS => {
-                        self.S = self.fetch_word(op.address, &op.address_flags);
+                        self.S = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STS => {
-                        self.set_at(op.address, &op.address_flags, self.S);
+                        self.set_at(op.address, &op.address_flags, self.S)?;
                     }
                     VariableOp::LDT => {
-                        self.T = self.fetch_word(op.address, &op.address_flags);
+                        self.T = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STT => {
-                        self.set_at(op.address, &op.address_flags, self.T);
+                        self.set_at(op.address, &op.address_flags, self.T)?;
                     }
                     VariableOp::LDF => {
-                        self.F = self.fetch_dword(op.address, &op.address_flags);
+                        self.F = self.fetch_dword(op.address, &op.address_flags)?;
                     }
                     VariableOp::STF => {
-                        self.set_dword_at(op.address, &op.address_flags, self.F);
+                        self.set_dword_at(op.address, &op.address_flags, self.F)?;
                     }
                     VariableOp::LDX => {
-                        self.X = self.fetch_word(op.address, &op.address_flags);
+                        self.X = self.fetch_word(op.address, &op.address_flags)?;
                     }
                     VariableOp::STX => {
-                        self.set_at(op.address, &op.address_flags, self.X);
+                        self.set_at(op.address, &op.address_flags, self.X)?;
                     }
                     VariableOp::STSW => {
-                        self.set_at(op.address, &op.address_flags, self.SW);
+                        self.set_at(op.address, &op.address_flags, self.SW)?;
                     }
 
                     // Bitwise
                     VariableOp::OR => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = [
                             self.A[0] | memory[0],
                             self.A[1] | memory[1],
@@ -348,7 +418,7 @@ impl SicXeVm {
                         ];
                     }
                     VariableOp::AND => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = [
                             self.A[0] & memory[0],
                             self.A[1] & memory[1],
@@ -358,70 +428,70 @@ impl SicXeVm {
 
                     // Math
                     VariableOp::ADD => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = u32_to_word(self.A.as_u32().wrapping_add(memory.as_u32()));
                     }
                     VariableOp::ADDF => {
-                        let memory = self.fetch_dword(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags)?;
                         self.F = f64_to_dword(self.F.as_f64() + memory.as_f64());
                     }
                     VariableOp::SUB => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = u32_to_word(self.A.as_u32().wrapping_sub(memory.as_u32()));
                     }
                     VariableOp::SUBF => {
-                        let memory = self.fetch_dword(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags)?;
                         self.F = f64_to_dword(self.F.as_f64() - memory.as_f64());
                     }
                     VariableOp::MUL => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = u32_to_word(self.A.as_u32().wrapping_mul(memory.as_u32()));
                     }
                     VariableOp::MULF => {
-                        let memory = self.fetch_dword(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags)?;
                         self.F = f64_to_dword(self.F.as_f64() * memory.as_f64());
                     }
                     VariableOp::DIV => {
-                        let memory = self.fetch_word(op.address, &op.address_flags);
+                        let memory = self.fetch_word(op.address, &op.address_flags)?;
                         self.A = u32_to_word(self.A.as_u32().wrapping_div(memory.as_u32()));
                     }
                     VariableOp::DIVF => {
-                        let memory = self.fetch_dword(op.address, &op.address_flags);
+                        let memory = self.fetch_dword(op.address, &op.address_flags)?;
                         self.F = f64_to_dword(self.F.as_f64() / memory.as_f64());
                     }
 
                     // Comp
                     VariableOp::COMP => {
-                        self.comp(self.A, op.address, &op.address_flags);
+                        self.comp(self.A, op.address, &op.address_flags)?;
                     }
                     VariableOp::COMPF => {
-                        self.compf(self.F, op.address, &op.address_flags);
+                        self.compf(self.F, op.address, &op.address_flags)?;
                     }
 
                     // Jumps
                     VariableOp::J => {
-                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
+                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags)?);
                     }
                     VariableOp::JLT => {
                         if check_cc(&self.SW) == Ordering::Less {
-                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags)?);
                         }
                     }
                     VariableOp::JEQ => {
                         if check_cc(&self.SW) == Ordering::Equal {
-                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags)?);
                         }
                     }
                     VariableOp::JGT => {
                         if check_cc(&self.SW) == Ordering::Greater {
-                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
+                            self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags)?);
                         }
                     }
 
                     // Subroutines
                     VariableOp::JSUB => {
                         self.L = self.PC;
-                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags));
+                        self.PC = u32_to_word(self.calc_addr(op.address, &op.address_flags)?);
                     }
                     VariableOp::RSUB => {
                         self.PC = self.L;
@@ -430,18 +500,18 @@ impl SicXeVm {
                     // Index
                     VariableOp::TIX => {
                         self.X = u32_to_word(self.X.as_u32() + 1);
-                        self.comp(self.X, op.address, &op.address_flags);
+                        self.comp(self.X, op.address, &op.address_flags)?;
                     }
 
                     // Devices
                     VariableOp::RD => {
                         let device_id =
-                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
+                            self.memory[self.calc_addr(op.address, &op.address_flags)? as usize];
                         self.A[2] = self.read_device(device_id);
                     }
                     VariableOp::TD => {
                         let device_id =
-                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
+                            self.memory[self.calc_addr(op.address, &op.address_flags)? as usize];
                         if self.test_device(device_id) {
                             set_cc(&mut self.SW, Ordering::Less);
                         } else {
@@ -450,7 +520,7 @@ impl SicXeVm {
                     }
                     VariableOp::WD => {
                         let device_id =
-                            self.memory[self.calc_addr(op.address, &op.address_flags) as usize];
+                            self.memory[self.calc_addr(op.address, &op.address_flags)? as usize];
                         self.write_device(device_id, self.A[2]);
                     }
 
@@ -458,18 +528,18 @@ impl SicXeVm {
                     VariableOp::SSK => todo!(),
                     VariableOp::LPS => {
                         //TODO: Treat these like instructions that increment the cycle count etc
-                        let address = self.calc_addr(op.address, &op.address_flags);
+                        let address = self.calc_addr(op.address, &op.address_flags)?;
 
-                        self.SW = self.word_at(address + 6);
-                        self.PC = self.word_at(address + 9);
+                        self.SW = self.word_at(address + 6)?;
+                        self.PC = self.word_at(address + 9)?;
 
-                        self.A = self.word_at(address + 12);
-                        self.X = self.word_at(address + 15);
-                        self.L = self.word_at(address + 18);
-                        self.B = self.word_at(address + 21);
-                        self.S = self.word_at(address + 24);
-                        self.T = self.word_at(address + 27);
-                        self.F = self.dword_at(address + 30);
+                        self.A = self.word_at(address + 12)?;
+                        self.X = self.word_at(address + 15)?;
+                        self.L = self.word_at(address + 18)?;
+                        self.B = self.word_at(address + 21)?;
+                        self.S = self.word_at(address + 24)?;
+                        self.T = self.word_at(address + 27)?;
+                        self.F = self.dword_at(address + 30)?;
                     }
                     VariableOp::STI => todo!(),
                 }
@@ -566,28 +636,32 @@ impl SicXeVm {
             // Described on p333
             Op::Svc(n) => {
                 self.SW[2] = n;
-                self.handle_interrupt(Interrupt::Svc);
+                self.handle_interrupt(Interrupt::Svc)?;
             }
         }
+
+        Ok(())
     }
 
-    fn handle_interrupt(&mut self, interrupt: Interrupt) {
+    fn handle_interrupt(&mut self, interrupt: Interrupt) -> Result<(), OpError> {
         //TODO: Treat these like instructions that increment the cycle count etc
         let work_area = interrupt.work_area();
 
-        self.set_at(work_area + 6, &AddressFlags::immediate(), self.SW);
-        self.set_at(work_area + 9, &AddressFlags::immediate(), self.PC);
+        self.set_at(work_area + 6, &AddressFlags::immediate(), self.SW)?;
+        self.set_at(work_area + 9, &AddressFlags::immediate(), self.PC)?;
 
-        self.set_at(work_area + 12, &AddressFlags::immediate(), self.A);
-        self.set_at(work_area + 15, &AddressFlags::immediate(), self.X);
-        self.set_at(work_area + 18, &AddressFlags::immediate(), self.L);
-        self.set_at(work_area + 21, &AddressFlags::immediate(), self.B);
-        self.set_at(work_area + 24, &AddressFlags::immediate(), self.S);
-        self.set_at(work_area + 27, &AddressFlags::immediate(), self.T);
-        self.set_dword_at(work_area + 30, &AddressFlags::immediate(), self.F);
+        self.set_at(work_area + 12, &AddressFlags::immediate(), self.A)?;
+        self.set_at(work_area + 15, &AddressFlags::immediate(), self.X)?;
+        self.set_at(work_area + 18, &AddressFlags::immediate(), self.L)?;
+        self.set_at(work_area + 21, &AddressFlags::immediate(), self.B)?;
+        self.set_at(work_area + 24, &AddressFlags::immediate(), self.S)?;
+        self.set_at(work_area + 27, &AddressFlags::immediate(), self.T)?;
+        self.set_dword_at(work_area + 30, &AddressFlags::immediate(), self.F)?;
 
-        self.SW = self.word_at(work_area);
-        self.PC = self.word_at(work_area + 3);
+        self.SW = self.word_at(work_area)?;
+        self.PC = self.word_at(work_area + 3)?;
+
+        Ok(())
     }
 }
 
@@ -819,7 +893,7 @@ mod test {
 
         vm.step();
 
-        let a_val: u32 = vm.word_at(3).as_u32();
+        let a_val: u32 = vm.word_at(3).unwrap().as_u32();
         assert_eq!(a_val, 0xAAAA);
         assert_eq!(vm.PC[2], 3);
     }
@@ -841,7 +915,7 @@ mod test {
         vm.step();
         vm.step();
 
-        let stored: u32 = vm.word_at(102).as_u32();
+        let stored: u32 = vm.word_at(102).unwrap().as_u32();
         assert_eq!(stored, 0xBEEF);
     }
 
@@ -859,7 +933,7 @@ mod test {
 
         vm.step();
 
-        let m_val: u32 = vm.word_at(98).as_u32();
+        let m_val: u32 = vm.word_at(98).unwrap().as_u32();
         assert_eq!(m_val, 0xBA);
     }
 
@@ -1012,7 +1086,7 @@ mod test {
         vm.step();
         vm.step();
 
-        assert_eq!(vm.word_at(6).as_u32(), 1234);
+        assert_eq!(vm.word_at(6).unwrap().as_u32(), 1234);
     }
 
     #[test]
@@ -1172,26 +1246,6 @@ mod test {
     }
 
     #[test]
-    fn unrecognized() {
-        // TODO: Treat unrecognized opcodes as noop for now
-        let mut vm = SicXeVm::empty();
-        vm.memory[0] = 0xFF;
-        let mut expected = SicXeVm::empty();
-        expected.memory = vm.memory.clone();
-
-        vm.step();
-
-        //TODO: Advance one byte?
-        assert_eq!(vm.PC.as_u32(), 1);
-
-        assert_eq!(vm.A, expected.A);
-        assert_eq!(vm.X, expected.X);
-        assert_eq!(vm.L, expected.L);
-        assert_eq!(vm.SW, expected.SW);
-        assert_eq!(vm.memory, expected.memory);
-    }
-
-    #[test]
     fn floats() {
         let mut vm = setup_var_op(VariableOp::LDF, 99);
         ni_op(&mut vm, 3, VariableOp::ADDF, 99);
@@ -1213,7 +1267,7 @@ mod test {
         vm.step();
         assert_eq!(vm.F.as_f64(), 21.0);
         vm.step();
-        let result = vm.dword_at(111).as_f64();
+        let result = vm.dword_at(111).unwrap().as_f64();
         assert_eq!(result, 21.0);
         vm.step();
         assert_eq!(check_cc(&vm.SW), Ordering::Greater);

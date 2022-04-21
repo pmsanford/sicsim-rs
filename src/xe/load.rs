@@ -148,6 +148,11 @@ pub fn copy_to_memory(memory: &mut [u8], program: &Program) -> u32 {
 pub fn copy_to_memory_at(memory: &mut [u8], program: &Program, at: u32) {
     for datum in &program.text {
         for (i, byte) in datum.data.iter().enumerate() {
+            println!(
+                "Loading data {:0>2X} at {}",
+                *byte,
+                datum.start_address as usize + i + at as usize
+            );
             memory[datum.start_address as usize + i + at as usize] = *byte;
         }
     }

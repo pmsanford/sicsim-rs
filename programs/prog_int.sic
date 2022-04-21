@@ -1,0 +1,7 @@
+INTPRG  START   0
+WORKA   EQU     304         Program interrupt work area starts at 0x130
+OPCVA   EQU     WORKA+9     PC before interrupt is at offset 9
+       +LDA    @OLDPC       Load PC after interrupt occurred, the instruction *after*
+HALT    J       HALT
+OLDPC   WORD    OPCVA
+        END     INTPRG

@@ -1,0 +1,5 @@
+OOR   START   0
+      LDA     WOOPS
+      RESW    25
+WOOPS RESW    1
+      END     OOR

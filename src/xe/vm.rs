@@ -332,7 +332,6 @@ impl SicXeVm {
 
     pub fn step(&mut self) {
         let op = self.get_op_at_pc();
-        println!("PC: {} OP: {:?}", self.PC.as_u32(), op);
         if op.as_ref().map(is_privileged).unwrap_or(false) && !supervisor_mode(&self.SW) {
             // TODO: Interrupt, privileged instruction
         }

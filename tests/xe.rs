@@ -5,6 +5,7 @@ use libsic::{
     xe::{
         load::{load_program_at, load_program_to, vm_with_program, vm_with_program_at},
         op::AddressFlags,
+        vm::PrintlnDebugger,
     },
     WordExt,
 };

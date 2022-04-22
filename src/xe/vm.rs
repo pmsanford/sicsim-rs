@@ -12,6 +12,28 @@ use crate::word::{
 use std::cmp::Ordering;
 use std::{collections::HashMap, fmt::Debug};
 
+pub trait Debugger {
+    fn op_read(&self, vm_state: &SicXeVm, op: &Op);
+    fn op_executed(&self, vm_state: &SicXeVm, op: &Op);
+    fn interrupt(&self, vm_state: &SicXeVm, interrupt: Interrupt);
+}
+
+pub struct PrintlnDebugger;
+
+impl Debugger for PrintlnDebugger {
+    fn op_read(&self, _vm_state: &SicXeVm, op: &Op) {
+        println!("Executing {:?}", op);
+    }
+
+    fn op_executed(&self, vm_state: &SicXeVm, _op: &Op) {
+        println!("-----> State after: {:?}", vm_state);
+    }
+
+    fn interrupt(&self, _vm_state: &SicXeVm, interrupt: Interrupt) {
+        println!("Saw interrupt {:?}", interrupt);
+    }
+}
+
 #[allow(non_snake_case)]
 pub struct SicXeVm {
     pub memory: Vec<u8>,
@@ -27,14 +49,19 @@ pub struct SicXeVm {
     devices: HashMap<u8, Box<dyn Device>>,
     #[allow(dead_code)]
     interrupt_queue: Vec<Interrupt>,
+    pub debugger: Option<Box<dyn Debugger>>,
 }
 
 impl Debug for SicXeVm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Vm")
+        f.debug_struct("SicXeVm")
             .field("A", &self.A)
             .field("X", &self.X)
             .field("L", &self.L)
+            .field("B", &self.B)
+            .field("S", &self.S)
+            .field("T", &self.T)
+            .field("F", &self.F)
             .field("PC", &self.PC)
             .field("SW", &self.SW)
             .finish()
@@ -74,6 +101,7 @@ impl SicXeVm {
             SW: [0; 3],
             devices: HashMap::new(),
             interrupt_queue: Vec::new(),
+            debugger: None,
         }
     }
 
@@ -314,6 +342,9 @@ impl SicXeVm {
     }
 
     fn program_interrupt(&mut self, error: OpError) {
+        if let Some(ref debugger) = self.debugger {
+            debugger.interrupt(self, Interrupt::Program);
+        }
         match error {
             OpError::AddressOutOfRange { .. } => {
                 // Code 02 = Address out of range
@@ -337,9 +368,15 @@ impl SicXeVm {
         }
         match op {
             Ok(op) => {
+                if let Some(ref debugger) = self.debugger {
+                    debugger.op_read(self, &op);
+                }
                 self.PC = u32_to_word(self.PC.as_u32() + op.len());
-                if let Err(err) = self.run_op(op) {
+                if let Err(err) = self.run_op(&op) {
                     self.program_interrupt(err);
+                }
+                if let Some(ref debugger) = self.debugger {
+                    debugger.op_executed(self, &op);
                 }
             }
             Err(error) => {
@@ -348,7 +385,7 @@ impl SicXeVm {
         }
     }
 
-    fn run_op(&mut self, op: Op) -> Result<(), OpError> {
+    fn run_op(&mut self, op: &Op) -> Result<(), OpError> {
         match op {
             Op::Variable(op) => {
                 match op.opcode {
@@ -634,7 +671,7 @@ impl SicXeVm {
             },
             // Described on p333
             Op::Svc(n) => {
-                self.SW[2] = n;
+                self.SW[2] = *n;
                 self.handle_interrupt(Interrupt::Svc)?;
             }
         }
@@ -666,7 +703,7 @@ impl SicXeVm {
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
-enum Interrupt {
+pub enum Interrupt {
     Svc,
     Program,
     Timer,

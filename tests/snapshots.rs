@@ -31,3 +31,19 @@ fn test_word_label_vals() {
 
     insta::assert_yaml_snapshot!(assembled);
 }
+
+#[test]
+fn test_equ() {
+    let program_text = include_str!("../programs/equ.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}
+
+#[test]
+fn test_relocate() {
+    let program_text = include_str!("../programs/relocatable.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}

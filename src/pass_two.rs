@@ -3,7 +3,7 @@ use std::mem;
 use crate::{
     constants::register,
     directive::{Assembler, Directive},
-    pass_one::{ParsedLine, PassOne},
+    pass_one::{ArgumentToken, ParsedLine, PassOne},
     record::{Data, Modification, Record, Text},
 };
 use anyhow::{Context, Result};
@@ -83,7 +83,7 @@ impl PassTwo {
                         address: line.offset + start_addr,
                         instructions: vec![],
                     });
-                    let mut bytes = parse_literal(line.get_argument()?)?;
+                    let mut bytes = parse_literal(&line.argument)?;
                     while !bytes.is_empty() {
                         let space_remaining = 30 - text.len();
                         if space_remaining < bytes.len() {
@@ -251,8 +251,7 @@ impl PassTwo {
 
                 // Parse literal
                 if line.literal_offset.is_some() {
-                    let argument = line.get_argument()?;
-                    let mut new_lits = parse_literal(&argument[1..])?;
+                    let mut new_lits = parse_literal(&line.argument)?;
                     self.literals.append(&mut new_lits);
                 }
 
@@ -317,13 +316,10 @@ impl PassTwo {
     }
 }
 
-pub fn parse_literal(arg: &str) -> Result<Vec<u8>> {
-    let (t, v) = arg
-        .split_once('\'')
-        .ok_or_else(|| anyhow::Error::msg("Invalid byte argument"))?;
-    Ok(match t {
-        "X" => {
-            let bytes = v[..v.len() - 1]
+pub fn parse_literal(arg: &ArgumentToken) -> Result<Vec<u8>> {
+    Ok(match arg {
+        ArgumentToken::LiteralBytes(v) => {
+            let bytes = v
                 .chars()
                 .collect::<Vec<char>>()
                 .chunks(2)
@@ -332,11 +328,8 @@ pub fn parse_literal(arg: &str) -> Result<Vec<u8>> {
                 .collect::<Result<Vec<_>, _>>()?;
             bytes
         }
-        "C" => {
-            let bytes = v[..v.len() - 1]
-                .chars()
-                .map(|c| c as u8)
-                .collect::<Vec<_>>();
+        ArgumentToken::LiteralChars(v) => {
+            let bytes = v.chars().map(|c| c as u8).collect::<Vec<_>>();
             bytes
         }
         _ => return Err(anyhow::Error::msg("Invalid byte argument")),

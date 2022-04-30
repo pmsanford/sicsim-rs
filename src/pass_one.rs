@@ -20,7 +20,7 @@ pub struct PassOne {
 }
 
 use crate::{
-    constants::line_regex,
+    constants::{line_regex, lit_regex},
     directive::{Assembler, Directive},
     labels::Labels,
 };
@@ -29,68 +29,11 @@ static MAX_DISP: u16 = 4095; // 0x0F_FF
 static MAX_PC: u16 = 2047; // 0x07_FF
 static MIN_PC: i16 = -2048; // 0x08_00
 
-fn literal_size(argument: &str) -> Result<usize> {
-    if argument.starts_with("C'") {
-        Ok(argument.len() - 3)
-    } else if argument.starts_with("X'") {
-        Ok((argument.len() - 3) / 2)
-    } else {
-        Err(anyhow::Error::msg(format!("Invalid literal {}", argument)))
-    }
-}
-
-fn size(directive: &str, argument: Option<&String>) -> Result<usize> {
-    if let Some(dir) = Directive::from_str(&directive.replace('+', "")) {
-        Ok(match dir {
-            Directive::Assembler(asm) => match asm {
-                Assembler::START | Assembler::END | Assembler::BASE => 0,
-                Assembler::BYTE => {
-                    let argument = argument
-                        .ok_or_else(|| anyhow::Error::msg("Byte directive requires argument"))?;
-                    literal_size(argument)?
-                }
-                Assembler::EQU => 0,
-                Assembler::WORD => 3,
-                Assembler::ORG => 0,
-                // Implemented in the caller
-                Assembler::LTORG => unimplemented!(),
-                Assembler::RESW => {
-                    let argument = argument
-                        .ok_or_else(|| anyhow::Error::msg("RESW directive requires argument"))?;
-                    argument.parse::<usize>()? * 3
-                }
-                Assembler::RESB => {
-                    let argument = argument
-                        .ok_or_else(|| anyhow::Error::msg("RESB directive requires argument"))?;
-                    argument.parse::<usize>()?
-                }
-            },
-            Directive::OneByte(_) => 1,
-            Directive::OneReg(_) => 2,
-            Directive::TwoReg(_) => 2,
-            Directive::Shift(_) => 2,
-            Directive::SVC => 2,
-            Directive::Variable(_) => {
-                if directive.starts_with('+') {
-                    4
-                } else {
-                    3
-                }
-            }
-        })
-    } else {
-        Err(anyhow::Error::msg(format!(
-            "Unknown directive {}",
-            directive
-        )))
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ParsedLine {
     pub label: Option<String>,
     pub directive: Directive,
-    pub argument: Option<String>,
+    pub argument: ArgumentToken,
     pub extended: bool,
     pub size: usize,
     pub offset: usize,
@@ -100,7 +43,7 @@ pub struct ParsedLine {
 
 impl ParsedLine {
     fn target(&self, labels: &Labels) -> Result<Option<usize>> {
-        if let Some(mut argument) = self.argument.clone() {
+        if let ArgumentToken::String(mut argument) = self.argument.clone() {
             if argument.ends_with(",X") {
                 argument = argument[..argument.len() - 2].to_owned();
             }
@@ -120,9 +63,7 @@ impl ParsedLine {
     }
 
     pub fn get_argument(&self) -> Result<&str> {
-        self.argument
-            .as_deref()
-            .ok_or_else(|| anyhow::Error::msg(format!("{:?} requires an argument", self.directive)))
+        self.argument.expect_string()
     }
 
     pub fn parse_flags(
@@ -132,14 +73,14 @@ impl ParsedLine {
         literal_offsets: &HashMap<usize, usize>,
     ) -> Result<(u32, AddressFlags)> {
         //TODO: Split this into parsing flags and calculating displacement
-        let mode = match self.argument.as_ref().and_then(|a| a.chars().next()) {
+        let mode = match self.argument.get_string().and_then(|a| a.chars().next()) {
             Some('#') => AddressMode::Immediate,
             Some('@') => AddressMode::Indirect,
             _ => AddressMode::Simple,
         };
         let indexed = self
             .argument
-            .as_ref()
+            .get_string()
             .map(|a| a.ends_with(",X"))
             .unwrap_or(false);
         let target = if let Some(literal_offset) = self.literal_offset {
@@ -214,7 +155,7 @@ impl FirstPass {
             let lastline = ParsedLine {
                 label: None,
                 directive: Directive::Assembler(Assembler::LTORG),
-                argument: None,
+                argument: ArgumentToken::None,
                 extended: false,
                 size: pass.literal_size,
                 offset: lines.last().unwrap().offset,
@@ -270,32 +211,14 @@ impl FirstPass {
     }
 
     fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
-        line_regex()
-            .captures(line)
-            .map(|cap| {
-                let raw_directive = cap
-                    .name("directive")
-                    .map(|m| m.as_str().to_owned())
-                    .ok_or_else(|| anyhow::Error::msg("Expected a 'directive' capture"))?;
-                let argument = cap
-                    .name("argument")
-                    .filter(|m| !m.as_str().is_empty())
-                    .map(|m| m.as_str().to_owned());
-
-                let directive =
-                    Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
-                        anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
-                    })?;
-
-                if directive == Directive::Assembler(Assembler::ORG) {
-                    self.cur_offset = self.calc_expr(
-                        argument
-                            .as_ref()
-                            .ok_or_else(|| anyhow::Error::msg("ORG requires argument"))?,
-                    )?;
+        let tokens = LineTokens::from_line(line)?;
+        tokens
+            .map(|tokens| {
+                if tokens.directive == Directive::Assembler(Assembler::ORG) {
+                    self.cur_offset = self.calc_expr(tokens.argument.expect_string()?)?;
                 }
 
-                let size = if directive == Directive::Assembler(Assembler::LTORG) {
+                let size = if tokens.directive == Directive::Assembler(Assembler::LTORG) {
                     let cur_size = self.literal_size;
                     self.literal_size = 0;
                     self.literal_offsets
@@ -303,35 +226,25 @@ impl FirstPass {
                     self.ltorg_index += 1;
                     cur_size
                 } else {
-                    size(&raw_directive, argument.as_ref())?
+                    tokens.size()?
                 };
 
                 let offset = self.cur_offset;
-                let label = cap.name("label").map(|m| m.as_str().to_owned());
 
-                if let Some(label) = label.as_ref() {
-                    if directive == Directive::Assembler(Assembler::EQU) {
+                if let Some(label) = tokens.label.as_ref() {
+                    if tokens.directive == Directive::Assembler(Assembler::EQU) {
                         self.labels.add(
                             label.clone(),
-                            self.calc_expr(
-                                argument
-                                    .as_ref()
-                                    .ok_or_else(|| anyhow::Error::msg("EQU requires argument"))?,
-                            )?,
+                            self.calc_expr(tokens.argument.expect_string()?)?,
                         );
                     } else {
                         self.labels.add(label.clone(), offset);
                     }
                 }
 
-                let literal_offset = if argument
-                    .as_ref()
-                    .map(|a| a.starts_with('='))
-                    .unwrap_or(false)
-                {
+                let literal_offset = if tokens.has_inline_literal() {
                     let literal_offset = self.literal_size;
-                    let argument = argument.as_ref().unwrap();
-                    self.literal_size += literal_size(&argument[1..])?;
+                    self.literal_size += tokens.argument.literal_length()?;
                     Some(literal_offset)
                 } else {
                     None
@@ -340,10 +253,10 @@ impl FirstPass {
                 self.cur_offset += size;
 
                 Ok(ParsedLine {
-                    label,
-                    directive,
-                    extended: raw_directive.starts_with('+'),
-                    argument,
+                    label: tokens.label,
+                    directive: tokens.directive,
+                    extended: tokens.extended,
+                    argument: tokens.argument,
                     size,
                     offset,
                     literal_offset,
@@ -351,5 +264,160 @@ impl FirstPass {
                 })
             })
             .transpose()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ArgumentToken {
+    None,
+    String(String),
+    LiteralBytes(String),
+    LiteralChars(String),
+}
+
+impl ArgumentToken {
+    fn parse_literal(lit: &str) -> Result<Self> {
+        println!("regexing {}", lit);
+        let captures = lit_regex()
+            .captures(lit)
+            .ok_or_else(|| anyhow::Error::msg("invalid literal"))?;
+
+        println!("caps: {:?}", captures);
+
+        if let Some(bytes) = captures.name("bytes") {
+            Ok(Self::LiteralBytes(bytes.as_str().to_owned()))
+        } else if let Some(chars) = captures.name("chars") {
+            Ok(Self::LiteralChars(chars.as_str().to_owned()))
+        } else {
+            //unreachable!("Regex has to match either bytes or chars")
+            Err(anyhow::Error::msg("Doesn't match regex"))
+        }
+    }
+
+    fn parse_argument(arg: Option<&str>) -> Result<Self> {
+        if let Some(arg) = arg {
+            if let Some(lit) = arg.strip_prefix('=') {
+                Self::parse_literal(lit)
+            } else {
+                Ok(Self::String(arg.to_owned()))
+            }
+        } else {
+            Ok(Self::None)
+        }
+    }
+
+    fn expect_string(&self) -> Result<&str> {
+        if let Self::String(ref s) = self {
+            Ok(s)
+        } else {
+            Err(anyhow::Error::msg(format!(
+                "expected string argument, found {:?}",
+                self
+            )))
+        }
+    }
+
+    fn get_string(&self) -> Option<&str> {
+        if let Self::String(ref s) = self {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    fn literal_length(&self) -> Result<usize> {
+        match self {
+            ArgumentToken::LiteralBytes(b) => Ok(b.len() / 2),
+            ArgumentToken::LiteralChars(c) => Ok(c.len()),
+            _ => Err(anyhow::Error::msg("expected literal argument")),
+        }
+    }
+}
+
+struct LineTokens {
+    label: Option<String>,
+    directive: Directive,
+    extended: bool,
+    argument: ArgumentToken,
+}
+
+impl LineTokens {
+    fn from_line(line: &str) -> Result<Option<Self>> {
+        line_regex()
+            .captures(line)
+            .map(|cap| {
+                let raw_directive = cap
+                    .name("directive")
+                    .map(|m| m.as_str().to_owned())
+                    .ok_or_else(|| anyhow::Error::msg("Expected a directive"))?;
+                let raw_argument = cap
+                    .name("argument")
+                    .filter(|m| !m.as_str().is_empty())
+                    .map(|m| m.as_str());
+
+                let label = cap.name("label").map(|m| m.as_str().to_owned());
+
+                let directive =
+                    Directive::from_str(&raw_directive.replace('+', "")).ok_or_else(|| {
+                        anyhow::Error::msg(format!("Couldn't parse directive {}", raw_directive))
+                    })?;
+
+                let argument = if directive == Directive::Assembler(Assembler::BYTE) {
+                    ArgumentToken::parse_literal(
+                        raw_argument.ok_or_else(|| anyhow::Error::msg("literal expected"))?,
+                    )?
+                } else {
+                    ArgumentToken::parse_argument(raw_argument)?
+                };
+
+                Ok(Self {
+                    label,
+                    directive,
+                    extended: raw_directive.starts_with('+'),
+                    argument,
+                })
+            })
+            .transpose()
+    }
+
+    fn has_inline_literal(&self) -> bool {
+        matches!(
+            (
+                self.directive == Directive::Assembler(Assembler::BYTE),
+                &self.argument,
+            ),
+            (
+                false,
+                ArgumentToken::LiteralBytes(_) | ArgumentToken::LiteralChars(_)
+            )
+        )
+    }
+
+    fn size(&self) -> Result<usize> {
+        Ok(match self.directive {
+            Directive::Assembler(asm) => match asm {
+                Assembler::START | Assembler::END | Assembler::BASE => 0,
+                Assembler::BYTE => self.argument.literal_length()?,
+                Assembler::EQU => 0,
+                Assembler::WORD => 3,
+                Assembler::ORG => 0,
+                // Implemented in the caller
+                Assembler::LTORG => unimplemented!(),
+                Assembler::RESW => self.argument.expect_string()?.parse::<usize>()? * 3,
+                Assembler::RESB => self.argument.expect_string()?.parse::<usize>()?,
+            },
+            Directive::OneByte(_) => 1,
+            Directive::OneReg(_) => 2,
+            Directive::TwoReg(_) => 2,
+            Directive::Shift(_) => 2,
+            Directive::SVC => 2,
+            Directive::Variable(_) => {
+                if self.extended {
+                    4
+                } else {
+                    3
+                }
+            }
+        })
     }
 }

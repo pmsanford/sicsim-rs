@@ -9,6 +9,9 @@ pub static REGISTERS: OnceCell<HashMap<String, Register>> = OnceCell::new();
 pub static LINE_REGEX: OnceCell<Regex> = OnceCell::new();
 static LINE_REGEX_PATTERN: &str =
     r#"^(?:(?P<label>[^.\s]\S*)|\s)\s+(?P<directive>\S+)(?:[^\n\S]+|$)(?P<argument>\S*)[^\n]*"#;
+pub static LIT_REGEX: OnceCell<Regex> = OnceCell::new();
+static LIT_REGEX_PATTERN: &str =
+    r#"^(?:(C)'(?P<chars>[^']+)'|(X)'(?P<bytes>[a-fA-F0-9][a-fA-F0-9])+')$"#;
 
 pub fn register(r: &str) -> Result<Register> {
     REGISTERS
@@ -33,4 +36,8 @@ pub fn register(r: &str) -> Result<Register> {
 
 pub fn line_regex() -> &'static Regex {
     LINE_REGEX.get_or_init(|| Regex::new(LINE_REGEX_PATTERN).expect("Invalid line regex"))
+}
+
+pub fn lit_regex() -> &'static Regex {
+    LIT_REGEX.get_or_init(|| Regex::new(LIT_REGEX_PATTERN).expect("Invalid lit regex"))
 }

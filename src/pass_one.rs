@@ -43,27 +43,23 @@ pub struct ParsedLine {
 
 impl ParsedLine {
     fn target(&self, labels: &Labels) -> Result<Option<usize>> {
-        if let ArgumentToken::String(mut argument) = self.argument.clone() {
-            if argument.ends_with(",X") {
-                argument = argument[..argument.len() - 2].to_owned();
-            }
-            if argument.starts_with('#') && Regex::new("[0-9][0-9]*")?.is_match(&argument[1..]) {
-                return Ok(Some(argument[1..].parse().map_err(|e| {
+        if let ArgumentToken::String(argument) = self.argument.clone() {
+            if argument.mode == AddressMode::Immediate
+                && Regex::new("[0-9][0-9]*")?.is_match(&argument.arg_string)
+            {
+                return Ok(Some(argument.arg_string.parse().map_err(|e| {
                     anyhow::Error::msg("Couldn't parse immediate arg").context(e)
                 })?));
             }
-            if argument.starts_with('#') || argument.starts_with('@') {
-                argument = argument[1..].to_owned();
-            }
 
-            Ok(Some(labels.get(&argument)?))
+            Ok(Some(labels.get(&argument.arg_string)?))
         } else {
             Ok(None)
         }
     }
 
     pub fn get_argument(&self) -> Result<&str> {
-        self.argument.expect_string()
+        Ok(&self.argument.expect_string()?.arg_string)
     }
 
     pub fn parse_flags(
@@ -73,15 +69,15 @@ impl ParsedLine {
         literal_offsets: &HashMap<usize, usize>,
     ) -> Result<(u32, AddressFlags)> {
         //TODO: Split this into parsing flags and calculating displacement
-        let mode = match self.argument.get_string().and_then(|a| a.chars().next()) {
-            Some('#') => AddressMode::Immediate,
-            Some('@') => AddressMode::Indirect,
-            _ => AddressMode::Simple,
-        };
+        let mode = self
+            .argument
+            .get_string()
+            .map(|arg| arg.mode)
+            .unwrap_or(AddressMode::Simple);
         let indexed = self
             .argument
             .get_string()
-            .map(|a| a.ends_with(",X"))
+            .map(|arg| arg.indexed)
             .unwrap_or(false);
         let target = if let Some(literal_offset) = self.literal_offset {
             Some(literal_offsets.get(&self.ltorg_index).unwrap() + literal_offset)
@@ -215,7 +211,8 @@ impl FirstPass {
         tokens
             .map(|tokens| {
                 if tokens.directive == Directive::Assembler(Assembler::ORG) {
-                    self.cur_offset = self.calc_expr(tokens.argument.expect_string()?)?;
+                    self.cur_offset =
+                        self.calc_expr(&tokens.argument.expect_string()?.arg_string)?;
                 }
 
                 let size = if tokens.directive == Directive::Assembler(Assembler::LTORG) {
@@ -235,7 +232,7 @@ impl FirstPass {
                     if tokens.directive == Directive::Assembler(Assembler::EQU) {
                         self.labels.add(
                             label.clone(),
-                            self.calc_expr(tokens.argument.expect_string()?)?,
+                            self.calc_expr(&tokens.argument.expect_string()?.arg_string)?,
                         );
                     } else {
                         self.labels.add(label.clone(), offset);
@@ -268,21 +265,25 @@ impl FirstPass {
 }
 
 #[derive(Debug, Clone)]
+pub struct StringArgument {
+    arg_string: String,
+    indexed: bool,
+    mode: AddressMode,
+}
+
+#[derive(Debug, Clone)]
 pub enum ArgumentToken {
     None,
-    String(String),
+    String(StringArgument),
     LiteralBytes(String),
     LiteralChars(String),
 }
 
 impl ArgumentToken {
     fn parse_literal(lit: &str) -> Result<Self> {
-        println!("regexing {}", lit);
         let captures = lit_regex()
             .captures(lit)
             .ok_or_else(|| anyhow::Error::msg("invalid literal"))?;
-
-        println!("caps: {:?}", captures);
 
         if let Some(bytes) = captures.name("bytes") {
             Ok(Self::LiteralBytes(bytes.as_str().to_owned()))
@@ -299,14 +300,31 @@ impl ArgumentToken {
             if let Some(lit) = arg.strip_prefix('=') {
                 Self::parse_literal(lit)
             } else {
-                Ok(Self::String(arg.to_owned()))
+                let (arg_string, mode, indexed) = match (
+                    arg.starts_with('#'),
+                    arg.starts_with('@'),
+                    arg.ends_with(",X"),
+                ) {
+                    (true, true, _) => unreachable!("Can't start with tow different things"),
+                    (true, false, true) => (&arg[1..arg.len() - 2], AddressMode::Immediate, true),
+                    (true, false, false) => (&arg[1..], AddressMode::Immediate, false),
+                    (false, true, true) => (&arg[1..arg.len() - 2], AddressMode::Indirect, true),
+                    (false, true, false) => (&arg[1..], AddressMode::Indirect, false),
+                    (false, false, true) => (&arg[..arg.len() - 2], AddressMode::Simple, true),
+                    (false, false, false) => (arg, AddressMode::Simple, false),
+                };
+                Ok(Self::String(StringArgument {
+                    arg_string: arg_string.to_owned(),
+                    indexed,
+                    mode,
+                }))
             }
         } else {
             Ok(Self::None)
         }
     }
 
-    fn expect_string(&self) -> Result<&str> {
+    fn expect_string(&self) -> Result<&StringArgument> {
         if let Self::String(ref s) = self {
             Ok(s)
         } else {
@@ -317,7 +335,7 @@ impl ArgumentToken {
         }
     }
 
-    fn get_string(&self) -> Option<&str> {
+    fn get_string(&self) -> Option<&StringArgument> {
         if let Self::String(ref s) = self {
             Some(s)
         } else {
@@ -403,8 +421,8 @@ impl LineTokens {
                 Assembler::ORG => 0,
                 // Implemented in the caller
                 Assembler::LTORG => unimplemented!(),
-                Assembler::RESW => self.argument.expect_string()?.parse::<usize>()? * 3,
-                Assembler::RESB => self.argument.expect_string()?.parse::<usize>()?,
+                Assembler::RESW => self.argument.expect_string()?.arg_string.parse::<usize>()? * 3,
+                Assembler::RESB => self.argument.expect_string()?.arg_string.parse::<usize>()?,
             },
             Directive::OneByte(_) => 1,
             Directive::OneReg(_) => 2,

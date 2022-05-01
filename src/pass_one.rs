@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
@@ -62,12 +62,13 @@ impl ParsedLine {
         Ok(&self.argument.expect_string()?.arg_string)
     }
 
-    pub fn parse_flags(
+    pub fn parse_variable_flags(
         &self,
         base: Option<usize>,
         labels: &Labels,
         literal_offsets: &HashMap<usize, usize>,
     ) -> Result<(u32, AddressFlags)> {
+        ensure!(matches!(self.directive, Directive::Variable(_)), "only for variable ops");
         let mode = self
             .argument
             .get_string()

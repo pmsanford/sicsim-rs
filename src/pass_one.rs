@@ -68,28 +68,31 @@ impl ParsedLine {
         labels: &Labels,
         literal_offsets: &HashMap<usize, usize>,
     ) -> Result<(u32, AddressFlags)> {
-        //TODO: Split this into parsing flags and calculating displacement
         let mode = self
             .argument
             .get_string()
             .map(|arg| arg.mode)
             .unwrap_or(AddressMode::Simple);
+
         let indexed = self
             .argument
             .get_string()
             .map(|arg| arg.indexed)
             .unwrap_or(false);
+
         let target = if let Some(literal_offset) = self.literal_offset {
             Some(literal_offsets.get(&self.ltorg_index).unwrap() + literal_offset)
         } else {
             self.target(labels)?
         };
+
         let target = if target.is_none() && self.directive == Directive::Variable(VariableOp::RSUB)
         {
             0
         } else {
             target.ok_or_else(|| anyhow::Error::msg("Expected target"))?
         };
+
         let pc = self.offset + 3;
 
         let pc_disp = target as i32 - pc as i32;

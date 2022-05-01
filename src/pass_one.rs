@@ -26,8 +26,8 @@ use crate::{
 };
 
 static MAX_DISP: u16 = 4095; // 0x0F_FF
-static MAX_PC: u16 = 2047; // 0x07_FF
-static MIN_PC: i16 = -2048; // 0x08_00
+static MAX_PC: i32 = 2047; // 0x07_FF
+static MIN_PC: i32 = -2048; // 0x08_00
 
 #[derive(Debug, Clone)]
 pub struct ParsedLine {
@@ -91,27 +91,28 @@ impl ParsedLine {
             target.ok_or_else(|| anyhow::Error::msg("Expected target"))?
         };
         let pc = self.offset + 3;
-        let (disp, relative_to) = if mode == AddressMode::Immediate || self.extended {
-            // Immediate or extended
-            (target, AddressRelativeTo::Direct)
-        } else if (target as i32) - (pc as i32) < (MAX_PC as i32)
-            && target as i32 - pc as i32 > MIN_PC as i32
-        {
-            // PC
-            ((target as i32 - pc as i32) as usize, AddressRelativeTo::PC)
-        } else if base
-            .map(|base| target >= base && (target - base) < (MAX_DISP as usize))
-            .unwrap_or(false)
-        {
-            // Base
-            (target - base.unwrap(), AddressRelativeTo::Base)
-        } else if target < MAX_DISP as usize {
-            // Direct
-            (target, AddressRelativeTo::Direct)
-        } else {
-            // Error
-            panic!("Too big for simple addressing");
+
+        let pc_disp = target as i32 - pc as i32;
+        let base_disp = base
+            .filter(|base| target >= *base)
+            .map(|base| target - base);
+
+        let (disp, relative_to) = match (mode, self.extended, pc_disp, base_disp) {
+            (AddressMode::Immediate, _, _, _) | (_, true, _, _) => {
+                (target, AddressRelativeTo::Direct)
+            }
+            (_, _, pcd, _) if MIN_PC < pcd && pcd < MAX_PC => {
+                (pc_disp as usize, AddressRelativeTo::PC)
+            }
+            (_, _, _, Some(bd)) if bd < MAX_DISP as usize => (bd, AddressRelativeTo::Base),
+            _ if target < MAX_DISP as usize => (target, AddressRelativeTo::Direct),
+            _ => {
+                return Err(anyhow::Error::msg(
+                    "couldn't find addressing mode for target",
+                ))
+            }
         };
+
         Ok((
             disp as u32,
             AddressFlags {

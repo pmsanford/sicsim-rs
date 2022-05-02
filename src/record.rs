@@ -10,7 +10,7 @@ pub enum Data {
 }
 
 impl Data {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         match self {
             Data::Instruction(op) => op.len() as usize,
             Data::Byte(b) => b.len(),
@@ -26,6 +26,12 @@ pub struct Text {
 }
 
 impl Text {
+    pub fn new(address: usize) -> Self {
+        Self {
+            address,
+            instructions: Vec::new(),
+        }
+    }
     pub fn len(&self) -> usize {
         self.instructions.iter().map(|i| i.len()).sum()
     }

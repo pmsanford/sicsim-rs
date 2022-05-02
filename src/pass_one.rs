@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{ensure, Context, Result};
 
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
@@ -68,7 +68,10 @@ impl ParsedLine {
         labels: &Labels,
         literal_offsets: &HashMap<usize, usize>,
     ) -> Result<(u32, AddressFlags)> {
-        ensure!(matches!(self.directive, Directive::Variable(_)), "only for variable ops");
+        ensure!(
+            matches!(self.directive, Directive::Variable(_)),
+            "only for variable ops"
+        );
         let mode = self
             .argument
             .get_string()

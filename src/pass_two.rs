@@ -6,7 +6,7 @@ use crate::{
     pass_one::{ArgumentToken, ParsedLine, PassOne},
     record::{Data, Modification, Record, Text},
 };
-use anyhow::{ensure, Context, Result};
+use anyhow::{Context, Result};
 use libsic::xe::op::{AddressMode, AddressRelativeTo, OneReg, Op, Shift, TwoReg, Variable};
 
 struct PassTwo {
@@ -74,13 +74,29 @@ impl PassTwo {
         Ok(self.records)
     }
 
-    fn add_instruction(&mut self, offset: usize, instruction: Data) -> Result<()> {
+    fn add_instruction(&mut self, offset: usize, mut instruction: Data) -> Result<()> {
+        let offset = offset + self.start_addr;
         let mut text = self.cur_text.take().unwrap_or_else(|| Text::new(offset));
-        ensure!(
-            instruction.len() <= 30,
-            "instruction too long for one record"
-        );
-        if text.len() + instruction.len() > 30 {
+
+        if let Data::Byte(mut bytes) = instruction {
+            while !bytes.is_empty() {
+                let space_remaining = 30 - text.len();
+                if space_remaining < bytes.len() {
+                    let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
+                    let new_bytes = new_text.len();
+                    text.instructions.push(Data::Byte(new_text));
+                    self.records.push(Record::Text(text));
+                    text = Text {
+                        address: offset + new_bytes,
+                        instructions: vec![],
+                    };
+                } else {
+                    break;
+                }
+            }
+
+            instruction = Data::Byte(bytes);
+        } else if text.len() + instruction.len() > 30 {
             self.records.push(Record::Text(text));
             text = Text::new(offset);
         }
@@ -98,55 +114,14 @@ impl PassTwo {
                     self.cur_base = Some(self.pass_one.labels.get(line.get_argument()?)?);
                 }
                 Assembler::BYTE => {
-                    let mut text = self
-                        .cur_text
-                        .take()
-                        .unwrap_or_else(|| Text::new(line.offset + self.start_addr));
-                    let mut bytes = parse_literal(&line.argument)?;
-                    while !bytes.is_empty() {
-                        let space_remaining = 30 - text.len();
-                        if space_remaining < bytes.len() {
-                            let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
-                            let new_bytes = new_text.len();
-                            text.instructions.push(Data::Byte(new_text));
-                            self.records.push(Record::Text(text));
-                            text = Text {
-                                address: line.offset + self.start_addr + new_bytes,
-                                instructions: vec![],
-                            };
-                        } else {
-                            text.instructions.push(Data::Byte(bytes));
-                            break;
-                        }
-                    }
-                    self.cur_text = Some(text);
+                    let bytes = parse_literal(&line.argument)?;
+                    self.add_instruction(line.offset, Data::Byte(bytes))?;
                 }
                 Assembler::EQU => {}
                 Assembler::ORG => {}
                 Assembler::LTORG => {
-                    let mut text = self
-                        .cur_text
-                        .take()
-                        .unwrap_or_else(|| Text::new(line.offset + self.start_addr));
-                    while !self.literals.is_empty() {
-                        let space_remaining = 30 - text.len();
-                        if space_remaining < self.literals.len() {
-                            let new_text: Vec<u8> =
-                                self.literals.drain(..space_remaining).collect();
-                            let new_literals = new_text.len();
-                            text.instructions.push(Data::Byte(new_text));
-                            self.records.push(Record::Text(text));
-                            text = Text {
-                                address: line.offset + self.start_addr + new_literals,
-                                instructions: vec![],
-                            };
-                        } else {
-                            let literals = mem::take(&mut self.literals);
-                            text.instructions.push(Data::Byte(literals));
-                            break;
-                        }
-                    }
-                    self.cur_text = Some(text);
+                    let literals = mem::take(&mut self.literals);
+                    self.add_instruction(line.offset, Data::Byte(literals))?;
                 }
                 Assembler::WORD => {
                     let argument = line.get_argument()?;

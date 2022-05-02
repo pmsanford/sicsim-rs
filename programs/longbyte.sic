@@ -1,0 +1,6 @@
+LBYT    START   0
+        LDA     TWO
+DONE    J       DONE
+ONE     BYTE    C'Thisisquitelong;longerthanonetextrecord'
+TWO     WORD    2
+        END     LBYT

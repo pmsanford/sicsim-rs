@@ -47,3 +47,11 @@ fn test_relocate() {
 
     insta::assert_yaml_snapshot!(assembled);
 }
+
+#[test]
+fn test_longbyte() {
+    let program_text = include_str!("../programs/longbyte.sic");
+    let assembled = assemble_program(program_text).unwrap();
+
+    insta::assert_yaml_snapshot!(assembled);
+}

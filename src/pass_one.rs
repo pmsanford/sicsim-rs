@@ -29,7 +29,7 @@ pub struct PassOne {
 use crate::{
     constants::{line_regex, lit_regex},
     directive::{Assembler, Directive},
-    labels::Labels,
+    labels::{Label, Labels},
 };
 
 static MAX_DISP: u16 = 4095; // 0x0F_FF
@@ -38,6 +38,7 @@ static MIN_PC: i32 = -2048; // 0x08_00
 
 #[derive(Debug, Clone)]
 pub struct ParsedLine {
+    pub block: String,
     pub label: Option<String>,
     pub directive: Directive,
     pub argument: ArgumentToken,
@@ -57,7 +58,7 @@ impl ParsedLine {
                 })?));
             }
 
-            Ok(Some(labels.get(&argument.arg_string)?))
+            Ok(Some(labels.get(&argument.arg_string)?.offset))
         } else {
             Ok(None)
         }
@@ -110,7 +111,8 @@ impl ParsedLine {
             (AddressMode::Immediate, _, _, _) | (_, true, _, _) => {
                 (target, AddressRelativeTo::Direct)
             }
-            (_, _, pcd, _) if i64::from(MIN_PC) < pcd && pcd < i64::from(MAX_PC) => {
+            (_, _, pcd, _) if i64::from(MIN_PC) < pcd && pcd < i64::from(MAX_PC) =>
+            {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 (pc_disp as usize, AddressRelativeTo::PC)
             }
@@ -186,7 +188,7 @@ impl FirstPass {
         } else if label.chars().all(char::is_numeric) {
             label.parse::<usize>()?
         } else {
-            self.labels.get(label)?
+            self.labels.get(label)?.offset
         })
     }
 
@@ -240,10 +242,20 @@ impl FirstPass {
                     if tokens.directive == Directive::Assembler(Assembler::EQU) {
                         self.labels.add(
                             label.clone(),
-                            self.calc_expr(&tokens.argument.expect_string()?.arg_string)?,
+                            Label {
+                                block: "".to_owned(),
+                                offset: self
+                                    .calc_expr(&tokens.argument.expect_string()?.arg_string)?,
+                            },
                         );
                     } else {
-                        self.labels.add(label.clone(), offset);
+                        self.labels.add(
+                            label.clone(),
+                            Label {
+                                block: "".to_owned(),
+                                offset,
+                            },
+                        );
                     }
                 }
 
@@ -263,6 +275,7 @@ impl FirstPass {
                 self.cur_offset += size;
 
                 Ok(ParsedLine {
+                    block: "".to_owned(),
                     label: tokens.label,
                     directive: tokens.directive,
                     extended: tokens.extended,

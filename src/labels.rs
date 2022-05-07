@@ -3,8 +3,14 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 #[derive(Debug, Clone)]
+pub struct Label {
+    pub block: String,
+    pub offset: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct Labels {
-    labels: HashMap<String, usize>,
+    labels: HashMap<String, Label>,
 }
 
 impl Labels {
@@ -14,14 +20,14 @@ impl Labels {
         }
     }
 
-    pub fn add(&mut self, key: String, value: usize) {
+    pub fn add(&mut self, key: String, value: Label) {
         self.labels.insert(key, value);
     }
 
-    pub fn get(&self, key: &str) -> Result<usize> {
+    pub fn get(&self, key: &str) -> Result<Label> {
         self.labels
             .get(key)
-            .copied()
+            .cloned()
             .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find label {}", key)))
     }
 }

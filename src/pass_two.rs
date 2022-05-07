@@ -3,7 +3,7 @@ use std::mem;
 use crate::{
     constants::register,
     directive::{Assembler, Directive},
-    pass_one::{ArgumentToken, ParsedLine, PassOne},
+    pass_one::{parse_literal, ArgumentToken, ParsedLine, PassOne},
     record::{Data, Modification, Record, Text},
 };
 use anyhow::{Context, Result};
@@ -12,7 +12,6 @@ use libsic::xe::op::{AddressMode, AddressRelativeTo, OneReg, Op, Shift, TwoReg, 
 struct PassTwo {
     cur_text: Option<Text>,
     cur_base: Option<usize>,
-    literals: Vec<u8>,
     records: Vec<Record>,
     modifications: Vec<Modification>,
     start_addr: usize,
@@ -46,7 +45,6 @@ impl PassTwo {
         Ok(Self {
             cur_text: None,
             cur_base: None,
-            literals: Vec::new(),
             records,
             modifications: Vec::new(),
             start_addr,
@@ -74,7 +72,7 @@ impl PassTwo {
         Ok(self.records)
     }
 
-    fn add_instruction(&mut self, offset: usize, mut instruction: Data) -> Result<()> {
+    fn add_instruction(&mut self, offset: usize, mut instruction: Data) {
         let offset = offset + self.start_addr;
         let mut text = self.cur_text.take().unwrap_or_else(|| Text::new(offset));
 
@@ -102,37 +100,52 @@ impl PassTwo {
         }
         text.instructions.push(instruction);
         self.cur_text = Some(text);
-
-        Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn assemble_line(&mut self, line: &ParsedLine) -> Result<()> {
         match line.directive {
             Directive::Assembler(asm) => match asm {
-                Assembler::START => {}
+                Assembler::START | Assembler::EQU | Assembler::ORG => {}
                 Assembler::BASE => {
                     self.cur_base = Some(self.pass_one.labels.get(line.get_argument()?)?);
                 }
                 Assembler::BYTE => {
-                    let bytes = parse_literal(&line.argument)?;
-                    self.add_instruction(line.offset, Data::Byte(bytes))?;
+                    if let ArgumentToken::Literal(ref lit) = line.argument {
+                        let bytes = parse_literal(lit)?;
+                        self.add_instruction(line.offset, Data::Byte(bytes));
+                    } else {
+                        return Err(anyhow::Error::msg("Invalid BYTE literal"));
+                    }
                 }
-                Assembler::EQU => {}
-                Assembler::ORG => {}
                 Assembler::LTORG => {
-                    let literals = mem::take(&mut self.literals);
-                    self.add_instruction(line.offset, Data::Byte(literals))?;
+                    let ltorg = self.pass_one.ltorgs.get_mut(&line.offset).ok_or_else(|| {
+                        anyhow::Error::msg(format!(
+                            "Couldn't find ltorg for offset {}",
+                            line.offset
+                        ))
+                    })?;
+                    let offset = ltorg.offset;
+                    let literals = mem::take(&mut ltorg.data);
+                    self.add_instruction(offset, Data::Byte(literals));
                 }
                 Assembler::WORD => {
                     let argument = line.get_argument()?;
                     let val = if argument.chars().all(char::is_numeric) {
                         argument.parse::<u32>()?
                     } else {
-                        self.pass_one.labels.get(argument)? as u32
+                        self.pass_one.labels.get(argument)?.try_into()?
                     };
-                    self.add_instruction(line.offset, Data::Word(val))?;
+                    self.add_instruction(line.offset, Data::Word(val));
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {
+                    if matches!(asm, Assembler::END) {
+                        let offset = self.pass_one.final_ltorg.offset;
+                        let literals = mem::take(&mut self.pass_one.final_ltorg.data);
+                        if !literals.is_empty() {
+                            self.add_instruction(offset, Data::Byte(literals));
+                        }
+                    }
                     if let Some(text) = self.cur_text.take() {
                         self.records.push(Record::Text(text));
                     }
@@ -140,13 +153,13 @@ impl PassTwo {
             },
             Directive::OneByte(opcode) => {
                 let op = Op::OneByte(opcode);
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
             Directive::OneReg(opcode) => {
                 let r1 = register(line.get_argument()?)?;
 
                 let op = Op::OneReg(OneReg { opcode, r1 });
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
             Directive::TwoReg(opcode) => {
                 let (r1s, r2s) = line
@@ -157,7 +170,7 @@ impl PassTwo {
                 let r2 = register(r2s)?;
 
                 let op = Op::TwoReg(TwoReg { opcode, r1, r2 });
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
             Directive::Shift(opcode) => {
                 let (r1s, ns) = line
@@ -168,19 +181,13 @@ impl PassTwo {
                 let n: u8 = ns.parse()?;
 
                 let op = Op::Shift(Shift { opcode, r1, n });
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
             Directive::Variable(opcode) => {
-                // Parse literal
-                if line.literal_offset.is_some() {
-                    let mut new_lits = parse_literal(&line.argument)?;
-                    self.literals.append(&mut new_lits);
-                }
-
                 let (address, address_flags) = line.parse_variable_flags(
                     self.cur_base,
                     &self.pass_one.labels,
-                    &self.pass_one.literal_offsets,
+                    &self.pass_one.littab,
                 )?;
 
                 if address_flags.mode != AddressMode::Immediate
@@ -204,38 +211,18 @@ impl PassTwo {
                     address_flags,
                     address,
                 });
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
             Directive::SVC => {
                 let n = line.get_argument()?.parse()?;
 
                 let op = Op::Svc(n);
-                self.add_instruction(line.offset, Data::Instruction(op))?;
+                self.add_instruction(line.offset, Data::Instruction(op));
             }
         };
 
         Ok(())
     }
-}
-
-pub fn parse_literal(arg: &ArgumentToken) -> Result<Vec<u8>> {
-    Ok(match arg {
-        ArgumentToken::LiteralBytes(v) => {
-            let bytes = v
-                .chars()
-                .collect::<Vec<char>>()
-                .chunks(2)
-                .map(|c| c.iter().collect::<String>())
-                .map(|s| u8::from_str_radix(&s, 16))
-                .collect::<Result<Vec<_>, _>>()?;
-            bytes
-        }
-        ArgumentToken::LiteralChars(v) => {
-            let bytes = v.chars().map(|c| c as u8).collect::<Vec<_>>();
-            bytes
-        }
-        _ => return Err(anyhow::Error::msg("Invalid byte argument")),
-    })
 }
 
 pub fn pass_two(pass_one: PassOne) -> Result<Vec<Record>> {

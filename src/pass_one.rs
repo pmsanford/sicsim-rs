@@ -1,22 +1,29 @@
-use std::collections::HashMap;
+use indexmap::IndexMap as HashMap;
 
 use anyhow::{ensure, Context, Result};
 
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
 
+#[derive(Debug)]
+pub struct Literal {
+    offset: Option<usize>,
+    value: Vec<u8>,
+}
+
 pub struct FirstPass {
     cur_offset: usize,
     labels: Labels,
-    literal_size: usize,
-    ltorg_index: usize,
-    literal_offsets: HashMap<usize, usize>,
+    littab: HashMap<LiteralArgument, Literal>,
+    ltorgs: HashMap<usize, Ltorg>,
 }
 
 pub struct PassOne {
     pub parsed_lines: Vec<ParsedLine>,
     pub labels: Labels,
-    pub literal_offsets: HashMap<usize, usize>,
+    pub littab: HashMap<LiteralArgument, usize>,
+    pub ltorgs: HashMap<usize, Ltorg>,
+    pub final_ltorg: Ltorg,
 }
 
 use crate::{
@@ -37,8 +44,6 @@ pub struct ParsedLine {
     pub extended: bool,
     pub size: usize,
     pub offset: usize,
-    pub literal_offset: Option<usize>,
-    pub ltorg_index: usize,
 }
 
 impl ParsedLine {
@@ -66,7 +71,7 @@ impl ParsedLine {
         &self,
         base: Option<usize>,
         labels: &Labels,
-        literal_offsets: &HashMap<usize, usize>,
+        littab: &HashMap<LiteralArgument, usize>,
     ) -> Result<(u32, AddressFlags)> {
         ensure!(
             matches!(self.directive, Directive::Variable(_)),
@@ -75,17 +80,14 @@ impl ParsedLine {
         let mode = self
             .argument
             .get_string()
-            .map(|arg| arg.mode)
-            .unwrap_or(AddressMode::Simple);
+            .map_or(AddressMode::Simple, |arg| arg.mode);
 
-        let indexed = self
-            .argument
-            .get_string()
-            .map(|arg| arg.indexed)
-            .unwrap_or(false);
+        let indexed = self.argument.get_string().map_or(false, |arg| arg.indexed);
 
-        let target = if let Some(literal_offset) = self.literal_offset {
-            Some(literal_offsets.get(&self.ltorg_index).unwrap() + literal_offset)
+        let target = if let ArgumentToken::Literal(ref la) = self.argument {
+            Some(*littab.get(la).ok_or_else(|| {
+                anyhow::Error::msg(format!("Couldn't find literal argument {:?}", la))
+            })?)
         } else {
             self.target(labels)?
         };
@@ -99,7 +101,7 @@ impl ParsedLine {
 
         let pc = self.offset + 3;
 
-        let pc_disp = target as i32 - pc as i32;
+        let pc_disp = target as i64 - pc as i64;
         let base_disp = base
             .filter(|base| target >= *base)
             .map(|base| target - base);
@@ -108,7 +110,8 @@ impl ParsedLine {
             (AddressMode::Immediate, _, _, _) | (_, true, _, _) => {
                 (target, AddressRelativeTo::Direct)
             }
-            (_, _, pcd, _) if MIN_PC < pcd && pcd < MAX_PC => {
+            (_, _, pcd, _) if i64::from(MIN_PC) < pcd && pcd < i64::from(MAX_PC) => {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 (pc_disp as usize, AddressRelativeTo::PC)
             }
             (_, _, _, Some(bd)) if bd < MAX_DISP as usize => (bd, AddressRelativeTo::Base),
@@ -120,6 +123,7 @@ impl ParsedLine {
             }
         };
 
+        #[allow(clippy::cast_possible_truncation)]
         Ok((
             disp as u32,
             AddressFlags {
@@ -137,15 +141,14 @@ impl FirstPass {
         Self {
             cur_offset: 0,
             labels: Labels::new(),
-            literal_size: 0,
-            ltorg_index: 0,
-            literal_offsets: HashMap::new(),
+            littab: HashMap::new(),
+            ltorgs: HashMap::new(),
         }
     }
 
     pub fn parse_lines(lines: &[&str]) -> Result<PassOne> {
         let mut pass = Self::new();
-        let mut lines = lines
+        let lines = lines
             .iter()
             .enumerate()
             .filter_map(|(line_no, line)| {
@@ -155,26 +158,25 @@ impl FirstPass {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        if pass.literal_size > 0 {
-            let lastline = ParsedLine {
-                label: None,
-                directive: Directive::Assembler(Assembler::LTORG),
-                argument: ArgumentToken::None,
-                extended: false,
-                size: pass.literal_size,
-                offset: lines.last().unwrap().offset,
-                literal_offset: None,
-                ltorg_index: pass.ltorg_index,
-            };
-            pass.literal_offsets
-                .insert(lastline.ltorg_index, lastline.offset);
-            lines.insert(lines.len() - 1, lastline);
-        }
+        let final_ltorg = address_literals(pass.cur_offset, &mut pass.littab);
+
+        let littab = pass
+            .littab
+            .into_iter()
+            .map(|(k, v)| {
+                let addr = v.offset.ok_or_else(|| {
+                    anyhow::Error::msg(format!("Literal {:?} missing address", k))
+                })?;
+                Ok::<_, anyhow::Error>((k, addr))
+            })
+            .collect::<Result<HashMap<LiteralArgument, usize>, _>>()?;
 
         Ok(PassOne {
             parsed_lines: lines,
             labels: pass.labels,
-            literal_offsets: pass.literal_offsets,
+            littab,
+            ltorgs: pass.ltorgs,
+            final_ltorg,
         })
     }
 
@@ -224,12 +226,10 @@ impl FirstPass {
                 }
 
                 let size = if tokens.directive == Directive::Assembler(Assembler::LTORG) {
-                    let cur_size = self.literal_size;
-                    self.literal_size = 0;
-                    self.literal_offsets
-                        .insert(self.ltorg_index, self.cur_offset);
-                    self.ltorg_index += 1;
-                    cur_size
+                    let ltorg = address_literals(self.cur_offset, &mut self.littab);
+                    let len = ltorg.len();
+                    self.ltorgs.insert(self.cur_offset, ltorg);
+                    len
                 } else {
                     tokens.size()?
                 };
@@ -247,13 +247,18 @@ impl FirstPass {
                     }
                 }
 
-                let literal_offset = if tokens.has_inline_literal() {
-                    let literal_offset = self.literal_size;
-                    self.literal_size += tokens.argument.literal_length()?;
-                    Some(literal_offset)
-                } else {
-                    None
-                };
+                if let Some(lit) = tokens.get_inline_literal() {
+                    if self.littab.get(&lit).is_none() {
+                        let value = parse_literal(&lit)?;
+                        self.littab.insert(
+                            lit,
+                            Literal {
+                                offset: None,
+                                value,
+                            },
+                        );
+                    }
+                }
 
                 self.cur_offset += size;
 
@@ -264,11 +269,35 @@ impl FirstPass {
                     argument: tokens.argument,
                     size,
                     offset,
-                    literal_offset,
-                    ltorg_index: self.ltorg_index,
                 })
             })
             .transpose()
+    }
+}
+
+#[derive(Debug)]
+pub struct Ltorg {
+    pub offset: usize,
+    pub data: Vec<u8>,
+}
+
+impl Ltorg {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+}
+
+fn address_literals(start_offset: usize, littab: &mut HashMap<LiteralArgument, Literal>) -> Ltorg {
+    let mut lt_offset = start_offset;
+    let mut ltorg_bytes = Vec::new();
+    for literal in littab.values_mut().filter(|v| v.offset.is_none()) {
+        literal.offset = Some(lt_offset);
+        ltorg_bytes.append(&mut literal.value.clone());
+        lt_offset += literal.value.len();
+    }
+    Ltorg {
+        offset: start_offset,
+        data: ltorg_bytes,
     }
 }
 
@@ -279,12 +308,17 @@ pub struct StringArgument {
     mode: AddressMode,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LiteralArgument {
+    Bytes(String),
+    Chars(String),
+}
+
 #[derive(Debug, Clone)]
 pub enum ArgumentToken {
     None,
     String(StringArgument),
-    LiteralBytes(String),
-    LiteralChars(String),
+    Literal(LiteralArgument),
 }
 
 impl ArgumentToken {
@@ -294,9 +328,13 @@ impl ArgumentToken {
             .ok_or_else(|| anyhow::Error::msg("invalid literal"))?;
 
         if let Some(bytes) = captures.name("bytes") {
-            Ok(Self::LiteralBytes(bytes.as_str().to_owned()))
+            Ok(Self::Literal(LiteralArgument::Bytes(
+                bytes.as_str().to_owned(),
+            )))
         } else if let Some(chars) = captures.name("chars") {
-            Ok(Self::LiteralChars(chars.as_str().to_owned()))
+            Ok(Self::Literal(LiteralArgument::Chars(
+                chars.as_str().to_owned(),
+            )))
         } else {
             //unreachable!("Regex has to match either bytes or chars")
             Err(anyhow::Error::msg("Doesn't match regex"))
@@ -353,11 +391,30 @@ impl ArgumentToken {
 
     fn literal_length(&self) -> Result<usize> {
         match self {
-            ArgumentToken::LiteralBytes(b) => Ok(b.len() / 2),
-            ArgumentToken::LiteralChars(c) => Ok(c.len()),
+            ArgumentToken::Literal(LiteralArgument::Bytes(b)) => Ok(b.len() / 2),
+            ArgumentToken::Literal(LiteralArgument::Chars(c)) => Ok(c.len()),
             _ => Err(anyhow::Error::msg("expected literal argument")),
         }
     }
+}
+
+pub fn parse_literal(arg: &LiteralArgument) -> Result<Vec<u8>> {
+    Ok(match arg {
+        LiteralArgument::Bytes(v) => {
+            let bytes = v
+                .chars()
+                .collect::<Vec<char>>()
+                .chunks(2)
+                .map(|c| c.iter().collect::<String>())
+                .map(|s| u8::from_str_radix(&s, 16))
+                .collect::<Result<Vec<_>, _>>()?;
+            bytes
+        }
+        LiteralArgument::Chars(v) => {
+            let bytes = v.chars().map(|c| c as u8).collect::<Vec<_>>();
+            bytes
+        }
+    })
 }
 
 struct LineTokens {
@@ -406,37 +463,33 @@ impl LineTokens {
             .transpose()
     }
 
-    fn has_inline_literal(&self) -> bool {
-        matches!(
-            (
-                self.directive == Directive::Assembler(Assembler::BYTE),
-                &self.argument,
-            ),
-            (
-                false,
-                ArgumentToken::LiteralBytes(_) | ArgumentToken::LiteralChars(_)
-            )
-        )
+    fn get_inline_literal(&self) -> Option<LiteralArgument> {
+        match (
+            self.directive == Directive::Assembler(Assembler::BYTE),
+            &self.argument,
+        ) {
+            (false, ArgumentToken::Literal(l)) => Some(l.clone()),
+            _ => None,
+        }
     }
 
     fn size(&self) -> Result<usize> {
         Ok(match self.directive {
             Directive::Assembler(asm) => match asm {
-                Assembler::START | Assembler::END | Assembler::BASE => 0,
+                Assembler::START
+                | Assembler::END
+                | Assembler::BASE
+                | Assembler::EQU
+                | Assembler::ORG => 0,
                 Assembler::BYTE => self.argument.literal_length()?,
-                Assembler::EQU => 0,
                 Assembler::WORD => 3,
-                Assembler::ORG => 0,
                 // Implemented in the caller
                 Assembler::LTORG => unimplemented!(),
                 Assembler::RESW => self.argument.expect_string()?.arg_string.parse::<usize>()? * 3,
                 Assembler::RESB => self.argument.expect_string()?.arg_string.parse::<usize>()?,
             },
             Directive::OneByte(_) => 1,
-            Directive::OneReg(_) => 2,
-            Directive::TwoReg(_) => 2,
-            Directive::Shift(_) => 2,
-            Directive::SVC => 2,
+            Directive::OneReg(_) | Directive::TwoReg(_) | Directive::Shift(_) | Directive::SVC => 2,
             Directive::Variable(_) => {
                 if self.extended {
                     4

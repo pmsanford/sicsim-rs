@@ -288,6 +288,7 @@ name = "sicasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "indexmap",
  "insta",
  "libsic",
  "once_cell",

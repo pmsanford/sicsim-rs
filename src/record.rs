@@ -33,7 +33,7 @@ impl Text {
         }
     }
     pub fn len(&self) -> usize {
-        self.instructions.iter().map(|i| i.len()).sum()
+        self.instructions.iter().map(Data::len).sum()
     }
 }
 
@@ -75,13 +75,12 @@ impl Display for Record {
                     text.instructions
                         .iter()
                         .map(|i| match i {
-                            Data::Instruction(_) => 3,
+                            Data::Instruction(_) | Data::Word(_) => 3,
                             Data::Byte(bytes) => bytes.len(),
-                            Data::Word(_) => 3,
                         })
                         .sum::<usize>()
                 )?;
-                for instruction in text.instructions.iter() {
+                for instruction in &text.instructions {
                     match instruction {
                         Data::Instruction(instruction) => {
                             let binary = instruction.to_bytes();

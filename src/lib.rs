@@ -10,6 +10,11 @@ mod pass_one;
 mod pass_two;
 mod record;
 
+/// Assemble a SIC program from text.
+///
+/// # Errors
+///
+/// If there's an error in the assembly code
 pub fn assemble_program(program_text: &str) -> Result<String> {
     let lines = program_text.lines().collect::<Vec<_>>();
     let pass_one = FirstPass::parse_lines(&lines)?;

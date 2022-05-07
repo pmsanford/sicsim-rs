@@ -58,7 +58,7 @@ impl ParsedLine {
                 })?));
             }
 
-            Ok(Some(labels.get(&argument.arg_string)?.offset))
+            Ok(Some(labels.absolute(&argument.arg_string)?))
         } else {
             Ok(None)
         }
@@ -188,7 +188,7 @@ impl FirstPass {
         } else if label.chars().all(char::is_numeric) {
             label.parse::<usize>()?
         } else {
-            self.labels.get(label)?.offset
+            self.labels.absolute(label)?
         })
     }
 

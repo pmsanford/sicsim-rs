@@ -68,8 +68,7 @@ impl PassTwo {
             first_instruction: self
                 .pass_one
                 .labels
-                .get(self.end_line.get_argument()?)?
-                .offset
+                .absolute(self.end_line.get_argument()?)?
                 + self.start_addr,
         });
 
@@ -112,7 +111,7 @@ impl PassTwo {
             Directive::Assembler(asm) => match asm {
                 Assembler::START | Assembler::EQU | Assembler::ORG => {}
                 Assembler::BASE => {
-                    self.cur_base = Some(self.pass_one.labels.get(line.get_argument()?)?.offset);
+                    self.cur_base = Some(self.pass_one.labels.absolute(line.get_argument()?)?);
                 }
                 Assembler::BYTE => {
                     if let ArgumentToken::Literal(ref lit) = line.argument {
@@ -138,7 +137,7 @@ impl PassTwo {
                     let val = if argument.chars().all(char::is_numeric) {
                         argument.parse::<u32>()?
                     } else {
-                        self.pass_one.labels.get(argument)?.offset.try_into()?
+                        self.pass_one.labels.absolute(argument)?.try_into()?
                     };
                     self.add_instruction(line.offset, Data::Word(val));
                 }

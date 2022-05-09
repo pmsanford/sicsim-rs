@@ -5,17 +5,22 @@ use anyhow::{ensure, Context, Result};
 use libsic::xe::op::{AddressFlags, AddressMode, AddressRelativeTo, VariableOp};
 use regex::Regex;
 
-#[derive(Debug)]
+pub struct ProgramBlock {
+    cur_offset: usize,
+    labels: Labels,
+    littab: HashMap<LiteralArgument, Literal>,
+    ltorgs: HashMap<usize, Ltorg>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Literal {
     offset: Option<usize>,
     value: Vec<u8>,
 }
 
 pub struct FirstPass {
-    cur_offset: usize,
-    labels: Labels,
-    littab: HashMap<LiteralArgument, Literal>,
-    ltorgs: HashMap<usize, Ltorg>,
+    current: String,
+    blocks: HashMap<String, ProgramBlock>,
 }
 
 pub struct PassOne {
@@ -141,10 +146,8 @@ impl ParsedLine {
 impl FirstPass {
     fn new() -> Self {
         Self {
-            cur_offset: 0,
-            labels: Labels::new(),
-            littab: HashMap::new(),
-            ltorgs: HashMap::new(),
+            current: "".to_owned(),
+            blocks: [("".to_owned(), ProgramBlock::new())].into(),
         }
     }
 
@@ -160,10 +163,43 @@ impl FirstPass {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let final_ltorg = address_literals(pass.cur_offset, &mut pass.littab);
+        let block = pass
+            .blocks
+            .get_mut("")
+            .ok_or_else(|| anyhow::Error::msg("Couldn't find default block"))?;
+        let final_ltorg = block.create_final_ltorg();
+        let littab = block.create_littab()?;
 
-        let littab = pass
-            .littab
+        Ok(PassOne {
+            parsed_lines: lines,
+            labels: block.labels.clone(),
+            littab,
+            ltorgs: block.ltorgs.clone(),
+            final_ltorg,
+        })
+    }
+
+    fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
+        self.blocks
+            .get_mut(&self.current)
+            .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find block {}", self.current)))?
+            .parse_line(line)
+    }
+}
+
+impl ProgramBlock {
+    fn new() -> Self {
+        Self {
+            cur_offset: 0,
+            labels: Labels::new(),
+            littab: HashMap::new(),
+            ltorgs: HashMap::new(),
+        }
+    }
+
+    fn create_littab(&mut self) -> Result<HashMap<LiteralArgument, usize>> {
+        self.littab
+            .clone()
             .into_iter()
             .map(|(k, v)| {
                 let addr = v.offset.ok_or_else(|| {
@@ -171,15 +207,11 @@ impl FirstPass {
                 })?;
                 Ok::<_, anyhow::Error>((k, addr))
             })
-            .collect::<Result<HashMap<LiteralArgument, usize>, _>>()?;
+            .collect::<Result<HashMap<LiteralArgument, usize>, _>>()
+    }
 
-        Ok(PassOne {
-            parsed_lines: lines,
-            labels: pass.labels,
-            littab,
-            ltorgs: pass.ltorgs,
-            final_ltorg,
-        })
+    fn create_final_ltorg(&mut self) -> Ltorg {
+        address_literals(self.cur_offset, &mut self.littab)
     }
 
     fn label_val(&self, label: &str) -> Result<usize> {
@@ -288,7 +320,7 @@ impl FirstPass {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Ltorg {
     pub offset: usize,
     pub data: Vec<u8>,

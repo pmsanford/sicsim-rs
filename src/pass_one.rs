@@ -180,10 +180,29 @@ impl FirstPass {
     }
 
     fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
-        self.blocks
+        let line = self
+            .blocks
             .get_mut(&self.current)
             .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find block {}", self.current)))?
-            .parse_line(line)
+            .parse_line(&self.current, line);
+
+        if let Ok(Some(ref line)) = line {
+            if matches!(line.directive, Directive::Assembler(Assembler::USE)) {
+                if let Some(arg) = line.argument.get_string() {
+                    if self.blocks.get(&arg.arg_string).is_none() {
+                        self.blocks
+                            .insert(arg.arg_string.clone(), ProgramBlock::new());
+                    }
+                }
+                self.current = line
+                    .argument
+                    .get_string()
+                    .map(|s| s.arg_string.clone())
+                    .unwrap_or_else(|| "".to_owned());
+            }
+        }
+
+        line
     }
 }
 
@@ -250,7 +269,7 @@ impl ProgramBlock {
         Ok(value)
     }
 
-    fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
+    fn parse_line(&mut self, block: &str, line: &str) -> Result<Option<ParsedLine>> {
         let tokens = LineTokens::from_line(line)?;
         tokens
             .map(|tokens| {
@@ -307,7 +326,7 @@ impl ProgramBlock {
                 self.cur_offset += size;
 
                 Ok(ParsedLine {
-                    block: "".to_owned(),
+                    block: block.to_owned(),
                     label: tokens.label,
                     directive: tokens.directive,
                     extended: tokens.extended,
@@ -525,6 +544,7 @@ impl LineTokens {
                 | Assembler::END
                 | Assembler::BASE
                 | Assembler::EQU
+                | Assembler::USE
                 | Assembler::ORG => 0,
                 Assembler::BYTE => self.argument.literal_length()?,
                 Assembler::WORD => 3,

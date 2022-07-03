@@ -1,0 +1,8 @@
+TUSE    START   0
+        LDA     FIRST
+        USE     BLKT
+        LDT     SECOND
+SECOND  WORD    2
+        USE
+FIRST   WORD    1
+        END     TUSE

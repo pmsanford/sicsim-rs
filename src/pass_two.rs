@@ -109,7 +109,7 @@ impl PassTwo {
     fn assemble_line(&mut self, line: &ParsedLine) -> Result<()> {
         match line.directive {
             Directive::Assembler(asm) => match asm {
-                Assembler::START | Assembler::EQU | Assembler::ORG => {}
+                Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
                 Assembler::BASE => {
                     self.cur_base = Some(self.pass_one.labels.absolute(line.get_argument()?)?);
                 }

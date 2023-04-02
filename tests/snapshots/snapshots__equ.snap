@@ -1,0 +1,6 @@
+---
+source: tests/snapshots.rs
+expression: assembled
+---
+"HTEQU  00000000010C\nT0000000C0101006D000C75000F3F2FFD\nE000000\n"
+

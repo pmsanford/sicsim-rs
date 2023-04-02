@@ -1,0 +1,8 @@
+WLAB  START   0
+      WORD    256
+FST   WORD    512
+SND   WORD    FST
+      RESW    100
+THR   WORD    1024
+FOR   WORD    THR
+      END     WLAB

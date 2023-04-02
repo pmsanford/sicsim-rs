@@ -1,0 +1,10 @@
+TORG    START   0
+        LDA    #ADRB
+        COMP   #ADRA
+DONE    J       DONE
+ADRA    RESB    1100
+        ORG     ADRA
+ADRB    RESW    1
+        ORG     ADRA+1100
+ADRC    RESW    3
+        END     TORG

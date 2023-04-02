@@ -1,0 +1,6 @@
+---
+source: tests/snapshots.rs
+expression: assembled
+---
+"HWLAB  00000000013B\nT00000009000100000200000003\nT00013506000400000135\nE000000\n"
+

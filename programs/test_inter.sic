@@ -1,0 +1,14 @@
+INTER   START   0
+        LDT    #4
+        RMO     S,A
+        STCH    DST
+LOOP    TD      DST
+        JEQ     LOOP
+        LDCH    OUT,X
+        WD      DST
+        TIXR    T
+        JLT     LOOP
+        LPS    #256
+DST     RESB    1
+OUT     BYTE    C'Read'
+        END     INTER

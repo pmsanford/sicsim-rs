@@ -10,6 +10,7 @@ use crate::word::{
     f64_to_dword, i32_to_word, u32_to_dword, u32_to_word, DWord, DWordExt, Word, WordExt,
 };
 use std::cmp::Ordering;
+use std::mem;
 use std::{collections::HashMap, fmt::Debug};
 
 pub trait Debugger {
@@ -46,10 +47,14 @@ pub struct SicXeVm {
     pub F: DWord, // 6
     pub PC: Word, // 8
     pub SW: Word, // 9
+    pub I: Word,
     devices: HashMap<u8, Box<dyn Device>>,
     #[allow(dead_code)]
     interrupt_queue: Vec<Interrupt>,
     pub debugger: Option<Box<dyn Debugger>>,
+    cycles_per_second: u64,
+    cycles: u64,
+    interval_cycles: u64,
 }
 
 impl Debug for SicXeVm {
@@ -62,8 +67,10 @@ impl Debug for SicXeVm {
             .field("S", &self.S)
             .field("T", &self.T)
             .field("F", &self.F)
+            .field("I", &self.I)
             .field("PC", &self.PC)
             .field("SW", &self.SW)
+            .field("cycles", &self.cycles)
             .finish()
     }
 }
@@ -99,9 +106,13 @@ impl SicXeVm {
             F: [0; 6],
             PC: [0; 3],
             SW: [0; 3],
+            I: [0; 3],
             devices: HashMap::new(),
             interrupt_queue: Vec::new(),
             debugger: None,
+            cycles_per_second: 1_000_000,
+            cycles: 0,
+            interval_cycles: 0,
         }
     }
 
@@ -168,20 +179,39 @@ impl SicXeVm {
         })
     }
 
-    fn fetch_word(&self, argument: u32, flags: &AddressFlags) -> Result<Word, OpError> {
+    fn cycle(&mut self) {
+        self.interval_cycles += 1;
+        self.cycles += 1;
+    }
+
+    fn handle_interval(&mut self) {
+        let i = self.I.as_u32();
+        if self.interval_cycles > (self.cycles_per_second / 1_000) && i > 0 {
+            self.interval_cycles -= self.cycles_per_second / 1_000;
+            self.I = u32_to_word(0.max(i - 1));
+            if self.I.as_u32() == 0 {
+                self.handle_interrupt(Interrupt::Timer)
+                    .expect("Interval interrupt");
+            }
+        }
+    }
+
+    fn fetch_word(&mut self, argument: u32, flags: &AddressFlags) -> Result<Word, OpError> {
         let address = self.calc_addr(argument, flags)?;
         if flags.mode == AddressMode::Immediate {
             Ok(u32_to_word(address))
         } else {
+            self.cycle();
             self.word_at(address)
         }
     }
 
-    fn fetch_dword(&self, argument: u32, flags: &AddressFlags) -> Result<DWord, OpError> {
+    fn fetch_dword(&mut self, argument: u32, flags: &AddressFlags) -> Result<DWord, OpError> {
         let address = self.calc_addr(argument, flags)?;
         if flags.mode == AddressMode::Immediate {
             Ok(u32_to_dword(address))
         } else {
+            self.cycle();
             self.dword_at(address)
         }
     }
@@ -260,6 +290,7 @@ impl SicXeVm {
         self.memory[address as usize] = value[0];
         self.memory[address as usize + 1] = value[1];
         self.memory[address as usize + 2] = value[2];
+        self.cycle();
 
         Ok(())
     }
@@ -278,6 +309,7 @@ impl SicXeVm {
         self.memory[address as usize + 3] = value[3];
         self.memory[address as usize + 4] = value[4];
         self.memory[address as usize + 5] = value[5];
+        self.cycle();
 
         Ok(())
     }
@@ -313,31 +345,33 @@ impl SicXeVm {
 
     pub fn run_until(&mut self, max_cycles: u64) -> StopReason {
         let mut pc: Option<Word> = None;
-        let mut cycles = 0;
         loop {
             self.step();
-            cycles += 1;
             if let Some(prev) = pc {
                 if prev == self.PC {
                     break StopReason::Halted;
                 }
             }
-            if cycles >= max_cycles {
+            if self.cycles >= max_cycles {
                 break StopReason::CycleLimit;
             }
             pc = Some(self.PC);
         }
     }
 
-    fn get_op_at_pc(&self) -> Result<Op, OpError> {
+    fn get_op_at_pc(&mut self) -> Result<Op, OpError> {
         let pc = self.pc_address() as usize;
         self.check_address_range(pc + 3)?;
+        // cycle for fetch
+        self.cycle();
         let bytes = [
             self.memory[pc],
             self.memory[pc + 1],
             self.memory[pc + 2],
             self.memory[pc + 3],
         ];
+        // cycle for decode
+        self.cycle();
         Op::from_bytes(bytes).ok_or(OpError::InvalidInstruction { address: pc })
     }
 
@@ -361,10 +395,42 @@ impl SicXeVm {
         }
     }
 
+    fn check_interrupt_queue(&mut self) -> Result<(), OpError> {
+        let mut next_interrupt = None;
+        let mut new_queue = vec![];
+        for interrupt in self.interrupt_queue.drain(..) {
+            if next_interrupt.is_none() && !interrupt.is_masked(&self.SW) {
+                next_interrupt = Some(interrupt);
+                break;
+            } else {
+                new_queue.push(interrupt);
+            }
+        }
+
+        new_queue.reverse();
+
+        mem::swap(&mut self.interrupt_queue, &mut new_queue);
+
+        if let Some(interrupt) = next_interrupt {
+            self.handle_interrupt(interrupt)?;
+        }
+
+        Ok(())
+    }
+
     pub fn step(&mut self) {
+        if let Err(err) = self.check_interrupt_queue() {
+            self.program_interrupt(err);
+        }
         let op = self.get_op_at_pc();
         if op.as_ref().map(is_privileged).unwrap_or(false) && !supervisor_mode(&self.SW) {
             // TODO: Interrupt, privileged instruction
+            if let Some(ref debugger) = self.debugger {
+                debugger.interrupt(self, Interrupt::Program);
+            }
+            self.SW[2] = 1;
+            self.handle_interrupt(Interrupt::Program)
+                .expect("Error in interrupt handler");
         }
         match op {
             Ok(op) => {
@@ -372,6 +438,14 @@ impl SicXeVm {
                     debugger.op_read(self, &op);
                 }
                 self.PC = u32_to_word(self.PC.as_u32() + op.len());
+                if is_privileged(&op) && !supervisor_mode(&self.SW) {
+                    if let Some(ref debugger) = self.debugger {
+                        debugger.interrupt(self, Interrupt::Program);
+                    }
+                    self.SW[2] = 1;
+                    self.handle_interrupt(Interrupt::Program)
+                        .expect("Error in interrupt handler");
+                }
                 if let Err(err) = self.run_op(&op) {
                     self.program_interrupt(err);
                 }
@@ -383,9 +457,11 @@ impl SicXeVm {
                 self.program_interrupt(error);
             }
         }
+        self.handle_interval();
     }
 
     fn run_op(&mut self, op: &Op) -> Result<(), OpError> {
+        self.cycle();
         match op {
             Op::Variable(op) => {
                 match op.opcode {
@@ -577,7 +653,9 @@ impl SicXeVm {
                         self.T = self.word_at(address + 27)?;
                         self.F = self.dword_at(address + 30)?;
                     }
-                    VariableOp::STI => todo!(),
+                    VariableOp::STI => {
+                        self.I = self.fetch_word(op.address, &op.address_flags)?;
+                    }
                 }
             }
             Op::OneByte(opcode) => match opcode {
@@ -681,6 +759,10 @@ impl SicXeVm {
 
     fn handle_interrupt(&mut self, interrupt: Interrupt) -> Result<(), OpError> {
         //TODO: Treat these like instructions that increment the cycle count etc
+        if interrupt.is_masked(&self.SW) {
+            self.interrupt_queue.push(interrupt);
+            return Ok(());
+        }
         let work_area = interrupt.work_area();
 
         self.set_at(work_area + 6, &AddressFlags::immediate(), self.SW)?;
@@ -718,6 +800,17 @@ impl Interrupt {
             Interrupt::Timer => 0x160,
             Interrupt::Io => 0x190,
         }
+    }
+
+    fn is_masked(&self, sw: &Word) -> bool {
+        let mask = match self {
+            Interrupt::Svc => 0x80,
+            Interrupt::Program => 0x40,
+            Interrupt::Timer => 0x20,
+            Interrupt::Io => 0x10,
+        };
+
+        sw[1] & mask > 0
     }
 }
 
@@ -759,7 +852,7 @@ mod test {
         word::i16_to_exponent,
         xe::{
             op::{AddressMode, OneReg, OneRegOp, Register, Shift, TwoReg, TwoRegOp, Variable},
-            status_word::{CC_BYTE, CC_EQ, CC_GT, CC_LT, CC_MASK},
+            status_word::{CC_BYTE, CC_EQ, CC_GT, CC_LT, CC_MASK, SUP_BYTE, SUP_MASK},
         },
     };
 
@@ -1244,6 +1337,7 @@ mod test {
                 write_buf: Rc::clone(&write_buf),
             }),
         );
+        vm.SW[SUP_BYTE] |= SUP_MASK;
         vm.memory[99] = 1;
         set_int(&mut vm, 108, 5);
         set_int(&mut vm, 206, 1234);
@@ -1266,6 +1360,8 @@ mod test {
         vm.step();
         vm.step();
         vm.step();
+
+        assert_eq!(vm.PC.as_u32(), 12);
 
         assert_eq!(vm.A[2], 'H' as u8);
 

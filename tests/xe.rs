@@ -5,7 +5,6 @@ use libsic::{
     xe::{
         load::{load_program_at, load_program_to, vm_with_program, vm_with_program_at},
         op::AddressFlags,
-        vm::PrintlnDebugger,
     },
     WordExt,
 };
@@ -20,7 +19,7 @@ fn test_interrupt() {
         .unwrap();
     let (output_buffer, output_device) = MemoryOutputDevice::new();
     vm.add_device(Box::new(output_device), 0x01);
-    assert_eq!(vm.run_until(100), StopReason::Halted);
+    assert_eq!(vm.run_until(1000), StopReason::Halted);
     let expected = "Read".as_bytes();
     assert_eq!(*output_buffer.borrow_mut(), expected);
     assert_eq!(vm.A.as_u32(), 1234);
@@ -45,7 +44,7 @@ fn test_oor() {
         &vm.memory[start_pc as usize + 1],
         &vm.memory[start_pc as usize + 2],
     );
-    let stop = vm.run_until(100);
+    let stop = vm.run_until(1000);
     assert_eq!(stop, StopReason::Halted);
     assert_eq!(vm.A.as_u32(), 1048569);
     assert_eq!(vm.PC.as_u32(), 1004);
@@ -56,7 +55,7 @@ fn test_relocation() {
     let test_program = include_str!("../programs/xe/relo.ebj");
     let mut vm = vm_with_program(test_program);
     assert_eq!(vm.A.as_u32(), 0);
-    assert_eq!(vm.run_until(100), StopReason::Halted);
+    assert_eq!(vm.run_until(1000), StopReason::Halted);
     assert_eq!(vm.A.as_u32(), 15);
     assert_eq!(vm.T.as_u32(), 2000);
 }
@@ -66,7 +65,7 @@ fn test_simple_add() {
     let test_program = include_str!("../programs/xe/add.ebj");
     let mut vm = vm_with_program(test_program);
     assert_eq!(vm.A.as_u32(), 0);
-    assert_eq!(vm.run_until(100), StopReason::Halted);
+    assert_eq!(vm.run_until(1000), StopReason::Halted);
     assert_eq!(vm.A.as_u32(), 5);
 }
 

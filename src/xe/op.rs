@@ -85,7 +85,7 @@ pub struct Shift {
     pub n: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AddressMode {
     Compatiblity,
     Simple,

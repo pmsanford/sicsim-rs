@@ -5,20 +5,25 @@ use libsic::{
     xe::{
         load::{load_program_at, load_program_to, vm_with_program, vm_with_program_at},
         op::AddressFlags,
+        vm::PrintlnDebugger,
     },
     WordExt,
 };
 
 #[test]
 fn test_interrupt() {
+    let work_areas = include_str!("../programs/xe/work_areas.ebj");
     let interrupt_handler = include_str!("../programs/xe/test_inter.ebj");
     let test_program = include_str!("../programs/xe/call_svc.ebj");
     let mut vm = vm_with_program(test_program);
+    vm.debugger = Some(Box::new(PrintlnDebugger));
     load_program_at(&mut vm, interrupt_handler, 1000);
+    load_program_to(&mut vm, work_areas);
     vm.set_at(0x103, &AddressFlags::immediate(), u32_to_word(1000))
         .unwrap();
     let (output_buffer, output_device) = MemoryOutputDevice::new();
     vm.add_device(Box::new(output_device), 0x01);
+
     assert_eq!(vm.run_until(1000), StopReason::Halted);
     let expected = "Read".as_bytes();
     assert_eq!(*output_buffer.borrow_mut(), expected);

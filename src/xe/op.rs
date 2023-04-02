@@ -332,7 +332,7 @@ pub fn is_privileged(op: &Op) -> bool {
         Op::OneReg(_) => false,
         Op::TwoReg(_) => false,
         Op::Shift(_) => false,
-        Op::Svc(_) => true,
+        Op::Svc(_) => false,
         Op::Variable(Variable { opcode, .. }) => matches!(
             opcode,
             VariableOp::LPS

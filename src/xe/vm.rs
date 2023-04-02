@@ -4,7 +4,7 @@ use super::op::{
     is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
     ShiftOp, TwoRegOp, VariableOp,
 };
-use super::status_word::{check_cc, set_cc, supervisor_mode};
+use super::status_word::{check_cc, set_cc, supervisor_mode, SUP_BYTE, SUP_MASK};
 use crate::device::Device;
 use crate::word::{
     f64_to_dword, i32_to_word, u32_to_dword, u32_to_word, DWord, DWordExt, Word, WordExt,
@@ -23,11 +23,11 @@ pub struct PrintlnDebugger;
 
 impl Debugger for PrintlnDebugger {
     fn op_read(&self, _vm_state: &SicXeVm, op: &Op) {
-        println!("Executing {:?}", op);
+        //println!("Executing {:?}", op);
     }
 
     fn op_executed(&self, vm_state: &SicXeVm, _op: &Op) {
-        println!("-----> State after: {:?}", vm_state);
+        //println!("-----> State after: {:?}", vm_state);
     }
 
     fn interrupt(&self, _vm_state: &SicXeVm, interrupt: Interrupt) {
@@ -190,6 +190,9 @@ impl SicXeVm {
             self.interval_cycles -= self.cycles_per_second / 1_000;
             self.I = u32_to_word(0.max(i - 1));
             if self.I.as_u32() == 0 {
+                if let Some(ref debugger) = self.debugger {
+                    debugger.interrupt(self, Interrupt::Timer);
+                }
                 self.handle_interrupt(Interrupt::Timer)
                     .expect("Interval interrupt");
             }
@@ -1324,6 +1327,12 @@ mod test {
         }
     }
 
+    // This is a hack to get these tests to pass while supervisor mode is
+    // being implemented.
+    fn set_supervisor_mode(vm: &mut SicXeVm) {
+        vm.SW[SUP_BYTE] |= SUP_MASK;
+    }
+
     #[test]
     fn devices() {
         let mut vm = setup_var_op(VariableOp::TD, 99);
@@ -1337,7 +1346,7 @@ mod test {
                 write_buf: Rc::clone(&write_buf),
             }),
         );
-        vm.SW[SUP_BYTE] |= SUP_MASK;
+        set_supervisor_mode(&mut vm);
         vm.memory[99] = 1;
         set_int(&mut vm, 108, 5);
         set_int(&mut vm, 206, 1234);

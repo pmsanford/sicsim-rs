@@ -99,17 +99,12 @@ impl Default for AddressMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AddressRelativeTo {
+    #[default]
     Direct,
     Base,
     PC,
-}
-
-impl Default for AddressRelativeTo {
-    fn default() -> Self {
-        AddressRelativeTo::Direct
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

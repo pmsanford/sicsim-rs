@@ -23,9 +23,9 @@ fn test_devices() {
     let input_device = FileInputDevice::new("tests/copy_input.txt").unwrap();
     let contents = include_bytes!("copy_input.txt");
     let mut expected = contents.to_vec();
-    expected.push('E' as u8);
-    expected.push('O' as u8);
-    expected.push('F' as u8);
+    expected.push(b'E');
+    expected.push(b'O');
+    expected.push(b'F');
     let (output_buffer, output_device) = MemoryOutputDevice::new();
     vm.add_device(Box::new(input_device), 0xF1);
     vm.add_device(Box::new(output_device), 0x05);

@@ -459,7 +459,7 @@ mod test {
     #[test]
     fn math() {
         let mut vm = setup_op(OpCode::ADD, 99);
-        set_int(&mut vm, 99, (-32 as i32) as u32);
+        set_int(&mut vm, 99, (-32_i32) as u32);
         vm.A = u32_to_word(32);
 
         vm.step();
@@ -670,8 +670,8 @@ mod test {
         }
 
         fn read(&mut self) -> u8 {
-            let d = self.content.chars().skip(self.pointer).next().unwrap() as u8;
-            self.pointer = self.pointer + 1;
+            let d = self.content.chars().nth(self.pointer).unwrap() as u8;
+            self.pointer += 1;
             if self.pointer >= self.content.len() {
                 self.pointer = 0;
             }
@@ -719,7 +719,7 @@ mod test {
         vm.step();
         vm.step();
 
-        assert_eq!(vm.A[2], 'H' as u8);
+        assert_eq!(vm.A[2], b'H');
 
         for _ in 0..1000 {
             if vm.A.as_u32() == 1234 {
@@ -739,7 +739,7 @@ mod test {
         let mut vm = SicVm::empty();
         vm.memory[0] = 0xFF;
         let mut expected = SicVm::empty();
-        expected.memory = vm.memory.clone();
+        expected.memory = vm.memory;
 
         vm.step();
 

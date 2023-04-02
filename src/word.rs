@@ -266,15 +266,15 @@ mod test {
         assert_eq!(u, 0x00CAFEBA);
         let u: usize = u32_to_word(0x00DEDBEF).as_usize();
         assert_eq!(u, 0x00DEDBEF);
-        let i: i32 = u32_to_word((-5 as i32) as u32).as_i32();
+        let i: i32 = u32_to_word((-5_i32) as u32).as_i32();
         assert_eq!(i, -5);
         let i: i32 = u32_to_word(350).as_i32();
         assert_eq!(i, 350);
         let w: Word = u32_to_word(0xCAFEBA);
         assert_eq!(w, [0xCA, 0xFE, 0xBA]);
-        let w: Word = u32_to_word((-1 as i32) as u32);
+        let w: Word = u32_to_word((-1_i32) as u32);
         assert_eq!(w, [0xFF, 0xFF, 0xFF]);
-        let w: Word = u32_to_word((-2 as i32) as u32);
+        let w: Word = u32_to_word((-2_i32) as u32);
         assert_eq!(w, [0xFF, 0xFF, 0xFE]);
     }
 }

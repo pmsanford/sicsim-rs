@@ -4,7 +4,7 @@ use super::op::{
     is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
     ShiftOp, TwoRegOp, VariableOp,
 };
-use super::status_word::{check_cc, set_cc, supervisor_mode, SUP_BYTE, SUP_MASK};
+use super::status_word::{check_cc, set_cc, supervisor_mode};
 use crate::device::Device;
 use crate::word::{
     f64_to_dword, i32_to_word, u32_to_dword, u32_to_word, DWord, DWordExt, Word, WordExt,
@@ -23,11 +23,11 @@ pub struct PrintlnDebugger;
 
 impl Debugger for PrintlnDebugger {
     fn op_read(&self, _vm_state: &SicXeVm, op: &Op) {
-        //println!("Executing {:?}", op);
+        println!("Executing {:?}", op);
     }
 
     fn op_executed(&self, vm_state: &SicXeVm, _op: &Op) {
-        //println!("-----> State after: {:?}", vm_state);
+        println!("-----> State after: {:?}", vm_state);
     }
 
     fn interrupt(&self, _vm_state: &SicXeVm, interrupt: Interrupt) {
@@ -241,12 +241,12 @@ impl SicXeVm {
         let address = address as usize;
         self.check_address_range(address + 5)?;
         Ok([
-            self.memory[address as usize],
-            self.memory[address as usize + 1],
-            self.memory[address as usize + 2],
-            self.memory[address as usize + 3],
-            self.memory[address as usize + 4],
-            self.memory[address as usize + 5],
+            self.memory[address],
+            self.memory[address + 1],
+            self.memory[address + 2],
+            self.memory[address + 3],
+            self.memory[address + 4],
+            self.memory[address + 5],
         ])
     }
 
@@ -1038,7 +1038,7 @@ mod test {
             3,
             Op::Variable(Variable {
                 opcode: VariableOp::STA,
-                address_flags: NI_FLAGS.clone(),
+                address_flags: NI_FLAGS,
                 address: 102,
             }),
         );
@@ -1103,7 +1103,7 @@ mod test {
     #[test]
     fn math() {
         let mut vm = setup_var_op(VariableOp::ADD, 99);
-        set_int(&mut vm, 99, (-32 as i32) as u32);
+        set_int(&mut vm, 99, (-32_i32) as u32);
         vm.A = u32_to_word(32);
 
         vm.step();
@@ -1229,7 +1229,7 @@ mod test {
             0,
             Op::Variable(Variable {
                 opcode: VariableOp::ADD,
-                address_flags: I_FLAGS.clone(),
+                address_flags: I_FLAGS,
                 address: 99,
             }),
         );
@@ -1314,8 +1314,8 @@ mod test {
         }
 
         fn read(&mut self) -> u8 {
-            let d = self.content.chars().skip(self.pointer).next().unwrap() as u8;
-            self.pointer = self.pointer + 1;
+            let d = self.content.chars().nth(self.pointer).unwrap() as u8;
+            self.pointer += 1;
             if self.pointer >= self.content.len() {
                 self.pointer = 0;
             }
@@ -1372,7 +1372,7 @@ mod test {
 
         assert_eq!(vm.PC.as_u32(), 12);
 
-        assert_eq!(vm.A[2], 'H' as u8);
+        assert_eq!(vm.A[2], b'H');
 
         for _ in 0..1000 {
             if vm.A.as_u32() == 1234 {

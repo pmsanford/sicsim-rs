@@ -1,0 +1,22 @@
+WORKA   START   100
+. SVC
+NEWSW   BYTE    X'808000'
+NEWPC   BYTE    X'000010'
+PCCST   RESW    10
+        RESB    12
+. Program
+NEWSW   BYTE    X'80C000'
+NEWPC   BYTE    X'000030'
+PCCST   RESW    10
+        RESB    12
+. Timer
+NEWSW   BYTE    X'80E000'
+NEWPC   BYTE    X'000050'
+PCCST   RESW    10
+        RESB    12
+. I/O
+NEWSW   BYTE    X'80F000'
+NEWPC   BYTE    X'000070'
+PCCST   RESW    10
+        RESB    12
+        END     WORKA

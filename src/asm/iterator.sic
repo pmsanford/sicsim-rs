@@ -1,0 +1,11 @@
+ITER  START   0
+      LDX    #0
+LOOP  LDA     COUNT
+      ADD    #1
+      STA     COUNT
+      TIX     MAX
+      JLT     LOOP
+DONE  J       DONE
+COUNT WORD    0
+MAX   WORD    4000
+      END     ITER

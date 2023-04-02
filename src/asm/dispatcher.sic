@@ -1,0 +1,9 @@
+DISP    START   50
+OLDPS   EQU     352
+        LDA     WAKEC
+        ADD    #1
+        STA     WAKEC
+        STI    #10
+       +LPS     OLDPS
+WAKEC   WORD    0
+        END     DISP

@@ -10,7 +10,7 @@ pub static LINE_REGEX: OnceCell<Regex> = OnceCell::new();
 static LINE_REGEX_PATTERN: &str = r#"^(?:(?P<label>[^.\s]\S*)|\s)\s+(?P<directive>\S+)(?:[^\n\S]+|$)(?P<argument>(?:(?:(?:C|X)'[^']*')|\S*))[^\n]*"#;
 pub static LIT_REGEX: OnceCell<Regex> = OnceCell::new();
 static LIT_REGEX_PATTERN: &str =
-    r#"^(?:(C)'(?P<chars>[^']+)'|(X)'(?P<bytes>[a-fA-F0-9][a-fA-F0-9])+')$"#;
+    r#"^(?:(C)'(?P<chars>[^']+)'|(X)'(?P<bytes>([a-fA-F0-9][a-fA-F0-9])+)')$"#;
 
 pub fn register(r: &str) -> Result<Register> {
     REGISTERS

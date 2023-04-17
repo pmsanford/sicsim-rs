@@ -1,4 +1,10 @@
-use libsic::{xe::{vm::{SicXeVm, PrintlnDebugger}, load::{load_program_to, load_program_at}}, WordExt};
+use libsic::{
+    xe::{
+        load::{load_program_at, load_program_to},
+        vm::{PrintlnDebugger, SicXeVm},
+    },
+    WordExt,
+};
 
 fn main() {
     let mut vm = SicXeVm::empty();
@@ -8,7 +14,10 @@ fn main() {
     let work_areas = include_str!("bin/work_areas.ebj");
     load_program_to(&mut vm, work_areas);
 
-    println!("Word at 0x130: {}", [vm.memory[0x130], vm.memory[0x131], vm.memory[0x132]].as_u32());
+    println!(
+        "Word at 0x130: {}",
+        [vm.memory[0x130], vm.memory[0x131], vm.memory[0x132]].as_u32()
+    );
 
     let program_int = include_str!("bin/program_int.ebj");
     load_program_to(&mut vm, program_int);
@@ -27,5 +36,8 @@ fn main() {
     println!("Final state: {:#?}", vm);
     println!("A: {}", vm.A.as_u32());
 
-    println!("Word at 0x05F: {}", [vm.memory[0x060], vm.memory[0x061], vm.memory[0x062]].as_u32());
+    println!(
+        "Word at 0x05F: {}",
+        [vm.memory[0x060], vm.memory[0x061], vm.memory[0x062]].as_u32()
+    );
 }

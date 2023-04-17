@@ -37,7 +37,7 @@ fn main() {
     println!("A: {}", vm.A.as_u32());
 
     println!(
-        "Word at 0x05F: {}",
-        [vm.memory[0x060], vm.memory[0x061], vm.memory[0x062]].as_u32()
+        "Word at 0x05E: {}",
+        [vm.memory[0x05F], vm.memory[0x060], vm.memory[0x061]].as_u32()
     );
 }

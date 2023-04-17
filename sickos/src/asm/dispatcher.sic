@@ -1,9 +1,9 @@
 DISP    START   50
-OLDPS   EQU     352+6
         LDA     WAKEC
         ADD    #1
         STA     WAKEC
         STI    #10
-       +LPS     OLDPS
+        LPS    @OLDPS
 WAKEC   WORD    0
+OLDPS   BYTE    X'000166'
         END     DISP

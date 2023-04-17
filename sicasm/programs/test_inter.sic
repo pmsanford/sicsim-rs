@@ -8,7 +8,7 @@ LOOP    TD      DST
         WD      DST
         TIXR    T
         JLT     LOOP
-        LPS    #256
+        LPS    #262
 DST     RESB    1
 OUT     BYTE    C'Read'
         END     INTER

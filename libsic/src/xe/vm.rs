@@ -645,16 +645,16 @@ impl SicXeVm {
                         //TODO: Treat these like instructions that increment the cycle count etc
                         let address = self.calc_addr(op.address, &op.address_flags)?;
 
-                        self.SW = self.word_at(address + 6)?;
-                        self.PC = self.word_at(address + 9)?;
+                        self.SW = self.word_at(address)?;
+                        self.PC = self.word_at(address + 3)?;
 
-                        self.A = self.word_at(address + 12)?;
-                        self.X = self.word_at(address + 15)?;
-                        self.L = self.word_at(address + 18)?;
-                        self.B = self.word_at(address + 21)?;
-                        self.S = self.word_at(address + 24)?;
-                        self.T = self.word_at(address + 27)?;
-                        self.F = self.dword_at(address + 30)?;
+                        self.A = self.word_at(address + 6)?;
+                        self.X = self.word_at(address + 9)?;
+                        self.L = self.word_at(address + 12)?;
+                        self.B = self.word_at(address + 15)?;
+                        self.S = self.word_at(address + 18)?;
+                        self.T = self.word_at(address + 21)?;
+                        self.F = self.dword_at(address + 24)?;
                     }
                     VariableOp::STI => {
                         self.I = self.fetch_word(op.address, &op.address_flags)?;

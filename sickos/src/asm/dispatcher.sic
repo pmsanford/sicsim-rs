@@ -1,5 +1,5 @@
 DISP    START   50
-OLDPS   EQU     352
+OLDPS   EQU     352+6
         LDA     WAKEC
         ADD    #1
         STA     WAKEC

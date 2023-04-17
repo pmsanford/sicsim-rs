@@ -24,12 +24,26 @@ fn main() {
 
     let dispatcher = include_str!("bin/dispatcher.ebj");
     load_program_to(&mut vm, dispatcher);
+    println!("Instruction at 0x50 {:02x}{:02x}{:02x}", vm.memory[0x50], vm.memory[0x51], vm.memory[0x52]);
 
     let iterator = include_str!("bin/iterator.ebj");
     load_program_at(&mut vm, iterator, 2000);
 
     vm.I = [0, 0, 10];
     vm.set_pc(2000);
+
+    for _ in 0..100000 {
+        vm.step();
+        if vm.PC.as_u32() == 0x50 {
+            println!("Hit break");
+            break;
+        }
+    }
+    println!("Instruction at 0x50 {:02x}{:02x}{:02x}", vm.memory[0x50], vm.memory[0x51], vm.memory[0x52]);
+
+    vm.step();
+    vm.step();
+    return;
 
     println!("Stopped: {:?}", vm.run_until(100000));
 

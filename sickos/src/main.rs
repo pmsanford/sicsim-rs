@@ -1,5 +1,5 @@
 use libsic::{
-    word::u32_to_word,
+    word::{u32_to_word, DWordExt},
     xe::{
         load::{load_program_at, load_program_to},
         op::AddressFlags,
@@ -16,6 +16,18 @@ fn print_word_at(vm: &mut SicXeVm, caption: &str, address: u32) {
         address,
         vm.word_at(address).unwrap().as_u32()
     );
+}
+
+fn read_ps(vm: &mut SicXeVm, address: u32) {
+    println!("SW: {:#08x}", vm.word_at(address).unwrap().as_u32());
+    println!("PC: {:#08x}", vm.word_at(address + 3).unwrap().as_u32());
+    println!("A: {:#08x}", vm.word_at(address + 6).unwrap().as_u32());
+    println!("X: {:#08x}", vm.word_at(address + 9).unwrap().as_u32());
+    println!("L: {:#08x}", vm.word_at(address + 12).unwrap().as_u32());
+    println!("B: {:#08x}", vm.word_at(address + 15).unwrap().as_u32());
+    println!("S: {:#08x}", vm.word_at(address + 18).unwrap().as_u32());
+    println!("T: {:#08x}", vm.word_at(address + 21).unwrap().as_u32());
+    println!("F: {}", vm.dword_at(address + 24).unwrap().as_f64());
 }
 
 const PSB_ONE_STATUS: u32 = 0x206;
@@ -81,4 +93,9 @@ fn main() {
     print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
     print_word_at(&mut vm, "iterator counter", ITERATOR_COUNTER);
     print_word_at(&mut vm, "multipler counter", MULTIPLIER_COUNTER);
+
+    println!("Iterator:");
+    read_ps(&mut vm, PSB_ONE_STATUS + 3);
+    println!("Multiplier:");
+    read_ps(&mut vm, PSB_TWO_STATUS + 3);
 }

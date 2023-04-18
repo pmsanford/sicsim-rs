@@ -7,12 +7,14 @@ DISP    START   50
         AND     SWPIM
         SHIFTR  A,2
         STA     RPID
+        COMP   #0
+        JEQ     FINDP
 . Store the current process's state
 . in its PSB
         LDA    @RPTR
         JSUB    STORE
 . Load the count of PSBs
-        LDA    @NPTR
+FINDP   LDA    @NPTR
         STA     PCNT
 . Move pointer to first PSB
         LDA     RPTR
@@ -92,6 +94,7 @@ STORE   STA     SPTR
         LDA    @SPTR
         AND     REDMA
         STA    @SPTR
+        LDA     SPTR
 . Advance the pointer to the PS record
         ADD    #3
         STA     SPTR

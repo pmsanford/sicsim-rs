@@ -3,6 +3,8 @@ PSBS    START   200
 . PCNT: Count of programs, including finished ones
 . Address 0x200
 PCNT    BYTE    X'000002'
+. Address 0x203
+RPTR    RESW    1
 . ==> ITER
 . STATE 
 . BIT   MEANING
@@ -10,16 +12,22 @@ PCNT    BYTE    X'000002'
 . 2-3   Unused
 . 4-7   Process ID
 . 8-23  Unused
+.
+. Address 0x206
 STATE   BYTE    X'010000'
-SW      BYTE    X'000000'
-PC      BYTE    X'0007D0'
+. Address 0x209
+SW      BYTE    X'040000'
 . Address 0x20C
+PC      BYTE    X'0007D0'
+. Address 0x20F
 REGS    RESW    8
 . ==> MULR
-. Address 0x22D
+. Address 0x227
 STATE   BYTE    X'020000'
-SW      BYTE    X'000000'
+. Address 0x22A
+SW      BYTE    X'080000'
+. Address 0x22D
 PC      BYTE    X'000BB8'
-. Address 0x236
+. Address 0x230
 REGS    RESW    8
         END     PSBS

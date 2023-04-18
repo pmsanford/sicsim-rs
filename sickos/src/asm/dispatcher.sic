@@ -1,13 +1,21 @@
 DISP    START   50
+. Reset state
+        LDA    #1
+        STA     CURID
 . Load the currently running PID
         LDA    @OLDPS
-        AND     PIDMA
+        AND     SWPIM
+        SHIFTR  A,2
         STA     RPID
+. Store the current process's state
+. in its PSB
+        LDA    @RPTR
+        JSUB    STORE
 . Load the count of PSBs
-        LDA    @STATE
+        LDA    @NPTR
         STA     PCNT
 . Move pointer to first PSB
-        LDA     STATE
+        LDA     RPTR
         ADD    #3
         STA     CURPT
 . Look for the next PID that's not
@@ -16,9 +24,19 @@ SRCH    LDA    @CURPT
         AND     PIDMA
         COMP    RPID
         JEQ     AGAIN
+. We found a runnable process - set
+. it to running
+        LDA    @CURPT
+        AND     RUNMA
+        OR      RUNSE
+        STA    @CURPT
+. Load its processor state, which
+. transfers control flow
         LDA     CURPT
+        STA    @RPTR
         ADD    #3
         STA     CURPT
+        STI    #10
         LPS    @CURPT
 . Increment the current PSB ID
 . for the next iteration through
@@ -39,16 +57,24 @@ OUT     JGT     OUT
         STA     CURPT
         J       SRCH
 . Size of a PSB in bytes
-PSBSZ   BYTE    X'000021'
+PSBSZ   WORD    33
 . Location of the stored state of
 . the currently running process
 OLDPS   BYTE    X'000166'
 . Location of the PSB list
-STATE   BYTE    X'000200'
-. Mask for process ID in status word
+NPTR    BYTE    X'000200'
+. Location of the pointer to the
+. running PSB
+RPTR    BYTE    X'000203'
+. Mask for process ID in PSB
 PIDMA   BYTE    X'0F0000'
+. Mask for process ID in SW
+SWPIM   BYTE    X'3C0000'
+. Mask for setting a process to running
+RUNMA   BYTE    X'7FFFFF'
+RUNSE   BYTE    X'400000'
 . Current index in the PSB table
-CURID   BYTE    X'000001'
+CURID   WORD    1
 . Process count
 PCNT    RESW    1
 . Running process ID
@@ -57,4 +83,57 @@ RPID    RESW    1
 CURPT   RESW    1
 . Process ID in current PSB
 CPID    RESW    1
+. Store processor state from OLDPS
+. in the PSB pointed to by the
+. address in A
+.
+. First, set status to ready
+STORE   STA     SPTR
+        LDA    @SPTR
+        AND     REDMA
+        STA    @SPTR
+. Advance the pointer to the PS record
+        ADD    #3
+        STA     SPTR
+. Store contents of T, X, and F
+        STT     OLDT
+        STX     OLDX
+        STF     OLDF
+. Set up the iteration for TIXR
+        LDT    #8
+        LDX    #0
+. Set up the load from address
+        LDA     OLDPS
+        STA     LPTR
+. Load a value from LPTR and
+. store at SPTR
+LOOP    LDA    @LPTR
+        STA    @SPTR
+        LDA     SPTR
+. Increment both pointers to the next
+. register
+        ADD    #3
+        STA     SPTR
+        LDA     LPTR
+        ADD    #3
+        STA     LPTR
+. Check if we're done with the WORD-sized
+. registers
+        TIXR    T
+        JEQ     SFLT
+        J       LOOP
+. Copy the float register
+SFLT    LDF    @LPTR
+        STF    @SPTR
+. Restore working register state
+        LDT     OLDT
+        LDX     OLDX
+        LDF     OLDF
+        RSUB
+REDMA   BYTE    X'3FFFFF'
+SPTR    RESW    1
+LPTR    RESW    1
+OLDT    RESW    1
+OLDX    RESW    1
+OLDF    RESB    4
         END     DISP

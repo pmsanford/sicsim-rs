@@ -25,19 +25,30 @@ fn main() {
     let dispatcher = include_str!("bin/dispatcher.ebj");
     load_program_to(&mut vm, dispatcher);
 
+    let psbs = include_str!("bin/psbs.ebj");
+    load_program_to(&mut vm, psbs);
+
     let iterator = include_str!("bin/iterator.ebj");
     load_program_at(&mut vm, iterator, 2000);
 
+    let multiplier = include_str!("bin/multiplier.ebj");
+    load_program_at(&mut vm, multiplier, 3000);
+
+    // Set interrupt timer at 10 sec
     vm.I = [0, 0, 10];
-    vm.set_pc(2000);
+    // Start in dispatcher
+    vm.set_pc(80);
+    // Need to start in privileged mode
+    vm.SW[0] |= 0x80;
+
+    println!("Byte at: {:#08x}", [vm.memory[521], vm.memory[522], vm.memory[523]].as_u32());
+    println!("[0, 2, 9] is {}", [0, 2, 9].as_u32());
 
     println!("Stopped: {:?}", vm.run_until(100000));
 
-    println!("Final state: {:#?}", vm);
+    println!("Pointer: {:#08x}", [vm.memory[99], vm.memory[100], vm.memory[101]].as_u32());
+
     println!("A: {}", vm.A.as_u32());
 
-    println!(
-        "Word at 0x05E: {}",
-        [vm.memory[0x05F], vm.memory[0x060], vm.memory[0x061]].as_u32()
-    );
+    println!("Word at 0x20C: {}", vm.word_at(0x20C).unwrap().as_u32());
 }

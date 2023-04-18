@@ -1,9 +1,60 @@
 DISP    START   50
-        LDA     WAKEC
+. Load the currently running PID
+        LDA    @OLDPS
+        AND     PIDMA
+        STA     RPID
+. Load the count of PSBs
+        LDA    @STATE
+        STA     PCNT
+. Move pointer to first PSB
+        LDA     STATE
+        ADD    #3
+        STA     CURPT
+. Look for the next PID that's not
+. the current running process
+SRCH    LDA    @CURPT
+        AND     PIDMA
+        COMP    RPID
+        JEQ     AGAIN
+        LDA     CURPT
+        ADD    #3
+        STA     CURPT
+        LPS    @CURPT
+. Increment the current PSB ID
+. for the next iteration through
+. the search and check if we're
+. past the end of the list
+AGAIN   LDA     CURID
         ADD    #1
-        STA     WAKEC
-        STI    #10
-        LPS    @OLDPS
-WAKEC   WORD    0
+        STA     CURID
+        COMP    PCNT
+. If we're past the end of the
+. PSB list, just halt for now
+OUT     JGT     OUT
+. Move the pointer to the next
+. PSB and jump back to search
+. again
+        LDA     CURPT
+        ADD     PSBSZ
+        STA     CURPT
+        J       SRCH
+. Size of a PSB in bytes
+PSBSZ   BYTE    X'000021'
+. Location of the stored state of
+. the currently running process
 OLDPS   BYTE    X'000166'
+. Location of the PSB list
+STATE   BYTE    X'000200'
+. Mask for process ID in status word
+PIDMA   BYTE    X'0F0000'
+. Current index in the PSB table
+CURID   BYTE    X'000001'
+. Process count
+PCNT    RESW    1
+. Running process ID
+RPID    RESW    1
+. Pointer to current PSB
+CURPT   RESW    1
+. Process ID in current PSB
+CPID    RESW    1
         END     DISP

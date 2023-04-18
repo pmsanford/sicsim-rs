@@ -1,0 +1,25 @@
+PSBS    START   200
+. ==> HEADER
+. PCNT: Count of programs, including finished ones
+. Address 0x200
+PCNT    BYTE    X'000002'
+. ==> ITER
+. STATE 
+. BIT   MEANING
+. 0-1   00 = ready, 01 = running, 10 = blocked, 11 = finished
+. 2-3   Unused
+. 4-7   Process ID
+. 8-23  Unused
+STATE   BYTE    X'010000'
+SW      BYTE    X'000000'
+PC      BYTE    X'0007D0'
+. Address 0x20C
+REGS    RESW    8
+. ==> MULR
+. Address 0x22D
+STATE   BYTE    X'020000'
+SW      BYTE    X'000000'
+PC      BYTE    X'000BB8'
+. Address 0x236
+REGS    RESW    8
+        END     PSBS

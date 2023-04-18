@@ -181,7 +181,7 @@ impl PassTwo {
                     .split_once(',')
                     .ok_or_else(|| anyhow::Error::msg("Malformed TwoReg argument"))?;
                 let r1 = register(r1s)?;
-                let n: u8 = ns.parse()?;
+                let n = ns.parse::<u8>()? - 1;
 
                 let op = Op::Shift(Shift { opcode, r1, n });
                 self.add_instruction(line.offset, Data::Instruction(op));

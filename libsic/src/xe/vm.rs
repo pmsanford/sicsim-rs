@@ -227,7 +227,7 @@ impl SicXeVm {
         }
     }
 
-    fn word_at(&self, address: u32) -> Result<Word, OpError> {
+    pub fn word_at(&self, address: u32) -> Result<Word, OpError> {
         let address = address as usize;
         self.check_address_range(address + 2)?;
         Ok([
@@ -237,7 +237,7 @@ impl SicXeVm {
         ])
     }
 
-    fn dword_at(&self, address: u32) -> Result<DWord, OpError> {
+    pub fn dword_at(&self, address: u32) -> Result<DWord, OpError> {
         let address = address as usize;
         self.check_address_range(address + 5)?;
         Ok([

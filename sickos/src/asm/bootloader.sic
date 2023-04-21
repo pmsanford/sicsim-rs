@@ -1,0 +1,3 @@
+BOOTL   START   0
+        J      #80
+        END     BOOTL

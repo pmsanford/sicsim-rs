@@ -41,6 +41,10 @@ fn main() {
 
     vm.debugger = Some(Box::new(PrintlnDebugger));
 
+    let bootstrap = include_str!("bin/bootloader.ebj");
+    println!("Bootstrap: {}", bootstrap);
+    load_program_at(&mut vm, bootstrap, 0);
+
     let work_areas = include_str!("bin/work_areas.ebj");
     load_program_to(&mut vm, work_areas);
 
@@ -73,7 +77,7 @@ fn main() {
     // Set interrupt timer at 10 sec
     vm.I = [0, 0, 10];
     // Start in dispatcher
-    vm.set_pc(80);
+    vm.set_pc(0);
     // Set pointer to running program
     vm.set_at(
         RUNNING_PTR,

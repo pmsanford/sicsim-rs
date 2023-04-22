@@ -220,24 +220,31 @@ impl Debugger for SdbDebugger {
         let pc = vm_state.PC.as_u32();
         let program = self.find_program(pc);
         print!("({:#08X}): {}", pc, op.mnemonic());
-        if let Op::Variable(op) = op {
+        let target_address = if let Op::Variable(op) = op {
             if let Ok(address) = vm_state.debug_target_address(op, true) {
                 if op.address_flags.mode == AddressMode::Immediate {
                     print!(" #{}", address);
+                    None
                 } else if op.address_flags.mode == AddressMode::Indirect {
                     let src_address = vm_state
                         .debug_calc_address(op.address, &AddressFlags::default(), true)
                         .unwrap();
                     print!(" @{:#08X} -> {:#08X}", src_address, address);
+                    Some(address)
                 } else {
                     print!(
                         " -> {}{:#08X}",
                         if op.address_flags.extended { "+" } else { "" },
                         address
                     );
+                    Some(address)
                 }
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
         if self.verbose {
             print!(" - {:?}", op);
         }
@@ -247,9 +254,19 @@ impl Debugger for SdbDebugger {
             let offset = pc - program.loaded_at;
             if let Some(line) = program.sdb.offset_map.get(&offset) {
                 let line = &program.sdb.lines[*line];
-                println!("  [{}] {} {}", name, line.line_number, line.text);
+                println!("  [{}] {}: {}", name, line.line_number, line.text);
             } else {
                 println!("  [{}] Unknown line", name);
+            }
+        }
+        if let Some(target_address) = target_address {
+            if let Some(target_program) = self.find_program(target_address) {
+                let name = &target_program.sdb.name;
+                let offset = target_address - target_program.loaded_at;
+                if let Some(line) = target_program.sdb.offset_map.get(&offset) {
+                    let line = &target_program.sdb.lines[*line];
+                    println!("    Target: [{}] {}: {}", name, line.line_number, line.text);
+                }
             }
         }
     }

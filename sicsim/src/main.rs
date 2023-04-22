@@ -1,6 +1,6 @@
 use std::{env, fs::File, io::Read};
 
-use libsic::{xe::load::vm_with_program, WordExt};
+use libsic::xe::load::vm_with_program;
 
 fn main() {
     let filename = env::args().nth(1).unwrap();

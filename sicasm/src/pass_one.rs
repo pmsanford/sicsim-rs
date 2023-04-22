@@ -473,20 +473,14 @@ impl ArgumentToken {
 
 pub fn parse_literal(arg: &LiteralArgument) -> Result<Vec<u8>> {
     Ok(match arg {
-        LiteralArgument::Bytes(v) => {
-            let bytes = v
-                .chars()
-                .collect::<Vec<char>>()
-                .chunks(2)
-                .map(|c| c.iter().collect::<String>())
-                .map(|s| u8::from_str_radix(&s, 16))
-                .collect::<Result<Vec<_>, _>>()?;
-            bytes
-        }
-        LiteralArgument::Chars(v) => {
-            let bytes = v.chars().map(|c| c as u8).collect::<Vec<_>>();
-            bytes
-        }
+        LiteralArgument::Bytes(v) => v
+            .chars()
+            .collect::<Vec<char>>()
+            .chunks(2)
+            .map(|c| c.iter().collect::<String>())
+            .map(|s| u8::from_str_radix(&s, 16))
+            .collect::<Result<Vec<_>, _>>()?,
+        LiteralArgument::Chars(v) => v.chars().map(|c| c as u8).collect::<Vec<_>>(),
     })
 }
 

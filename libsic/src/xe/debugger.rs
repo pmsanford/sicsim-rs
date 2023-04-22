@@ -13,6 +13,7 @@ use super::{
     vm::Debugger,
 };
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct LoadedProgram {
     loaded_at: u32,
@@ -208,7 +209,7 @@ impl SdbDebugger {
     pub fn load(&mut self, loaded_at: u32, sdb: String) -> Result<(), LoadError> {
         let sdb = Sdb::from_string(&sdb)?;
 
-        let last_offset = *sdb.offset_map.keys().max().ok_or_else(|| LoadError)?;
+        let last_offset = *sdb.offset_map.keys().max().ok_or(LoadError)?;
 
         let last_address = loaded_at + last_offset;
 
@@ -231,6 +232,12 @@ impl SdbDebugger {
         }
 
         None
+    }
+}
+
+impl Default for SdbDebugger {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

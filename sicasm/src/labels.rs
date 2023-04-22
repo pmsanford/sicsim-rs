@@ -35,6 +35,7 @@ impl Labels {
         Ok(self.get(key)?.offset)
     }
 
+    #[allow(dead_code)]
     pub fn relative(&self, blocks: &HashMap<String, usize>, key: &str) -> Result<usize> {
         let label = self.get(key)?;
         let start = blocks

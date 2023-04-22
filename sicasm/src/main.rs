@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let (program, debug) = assemble_with_debug(&program_text)?;
 
     fs::write(format!("{}.ebj", output_name), program)?;
-    fs::write(format!("{}.sdb", output_name), debug.to_string())?;
+    fs::write(format!("{}.sdb", output_name), debug)?;
 
     Ok(())
 }

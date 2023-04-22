@@ -2,12 +2,7 @@ use std::{fs, path::PathBuf};
 
 use libsic::{
     word::{u32_to_word, DWordExt},
-    xe::{
-        debugger::SdbDebugger,
-        load::{load_program_at, load_program_to},
-        op::AddressFlags,
-        vm::{PrintlnDebugger, SicXeVm},
-    },
+    xe::{debugger::SdbDebugger, load::load_program_at, op::AddressFlags, vm::SicXeVm},
     WordExt,
 };
 

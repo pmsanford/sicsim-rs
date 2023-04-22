@@ -155,7 +155,7 @@ impl SicXeVm {
     }
 
     pub fn debug_target_address(&self, op: &Variable, advance_pc: bool) -> Result<u32, OpError> {
-        Ok(self.debug_calc_address(op.address, &op.address_flags, advance_pc)?)
+        self.debug_calc_address(op.address, &op.address_flags, advance_pc)
     }
 
     pub fn debug_calc_address(
@@ -168,7 +168,7 @@ impl SicXeVm {
         if advance_pc {
             pc += if flags.extended { 4 } else { 3 };
         }
-        Ok(self.calc_addr_with(pc, argument, flags)?)
+        self.calc_addr_with(pc, argument, flags)
     }
 
     fn calc_addr_with(&self, pc: i32, argument: u32, flags: &AddressFlags) -> Result<u32, OpError> {

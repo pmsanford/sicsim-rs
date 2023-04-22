@@ -1,3 +1,5 @@
+use std::{fs, path::PathBuf};
+
 use libsic::{
     word::{u32_to_word, DWordExt},
     xe::{
@@ -37,43 +39,43 @@ const ITERATOR_COUNTER: u32 = 0x7E5;
 const MULTIPLIER_COUNTER: u32 = 0xBD6;
 const RUNNING_PTR: u32 = 0x203;
 
+fn load_program(vm: &mut SicXeVm, debugger: &mut SdbDebugger, name: &str, load_at: u32) {
+    let mut path = PathBuf::from("./src/bin/");
+    path.push(name);
+    let program = fs::read_to_string(path.with_extension("ebj")).unwrap();
+    let program_sdb = fs::read_to_string(path.with_extension("sdb")).unwrap();
+    load_program_at(vm, &program, load_at);
+    debugger.load(load_at, program_sdb).unwrap();
+}
+
 fn main() {
     let mut vm = SicXeVm::empty();
+    let mut debugger = SdbDebugger::new();
 
-    vm.debugger = Some(Box::new(SdbDebugger::new()));
+    load_program(&mut vm, &mut debugger, "bootloader", 0x0);
 
-    let bootstrap = include_str!("bin/bootloader.ebj");
-    println!("Bootstrap: {}", bootstrap);
-    load_program_at(&mut vm, bootstrap, 0);
+    load_program(&mut vm, &mut debugger, "work_areas", 0x100);
 
-    let work_areas = include_str!("bin/work_areas.ebj");
-    load_program_to(&mut vm, work_areas);
+    load_program(&mut vm, &mut debugger, "program_int", 0x30);
 
-    println!(
-        "Word at 0x130: {}",
-        [vm.memory[0x130], vm.memory[0x131], vm.memory[0x132]].as_u32()
-    );
+    load_program(&mut vm, &mut debugger, "dispatcher", 0x300);
 
-    let program_int = include_str!("bin/program_int.ebj");
-    load_program_to(&mut vm, program_int);
+    print_word_at(&mut vm, "First dispatcher", 0x300);
 
-    let dispatcher = include_str!("bin/dispatcher.ebj");
-    load_program_to(&mut vm, dispatcher);
+    load_program(&mut vm, &mut debugger, "psbs", 0x200);
 
-    let psbs = include_str!("bin/psbs.ebj");
-    load_program_to(&mut vm, psbs);
+    load_program(&mut vm, &mut debugger, "iterator", 2000);
 
-    let iterator = include_str!("bin/iterator.ebj");
-    load_program_at(&mut vm, iterator, 2000);
+    load_program(&mut vm, &mut debugger, "multiplier", 3000);
 
-    let multiplier = include_str!("bin/multiplier.ebj");
-    load_program_at(&mut vm, multiplier, 3000);
     print_word_at(&mut vm, "iterator status", PSB_ONE_STATUS);
     print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
     print_word_at(&mut vm, "iterator sw", PSB_ONE_STATUS + 3);
     print_word_at(&mut vm, "multiplier sw", PSB_TWO_STATUS + 3);
     print_word_at(&mut vm, "iterator counter", ITERATOR_COUNTER);
     print_word_at(&mut vm, "multipler counter", MULTIPLIER_COUNTER);
+
+    vm.debugger = Some(Box::new(debugger));
 
     // Set interrupt timer at 10 sec
     vm.I = [0, 0, 10];

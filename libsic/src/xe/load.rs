@@ -133,6 +133,7 @@ pub fn load_program_from(path: &str) -> Program {
 pub fn copy_to_memory(memory: &mut [u8], program: &Program) -> u32 {
     if program.modifications.is_empty() && program.header.start_address != 0 {
         for datum in &program.text {
+            println!("Copying to memory at {:#08X}", datum.start_address);
             for (i, byte) in datum.data.iter().enumerate() {
                 memory[datum.start_address as usize + i] = *byte;
             }
@@ -146,9 +147,14 @@ pub fn copy_to_memory(memory: &mut [u8], program: &Program) -> u32 {
 
 // TODO: Fallible
 pub fn copy_to_memory_at(memory: &mut [u8], program: &Program, at: u32) {
+    let program_start = program.header.start_address as usize;
     for datum in &program.text {
+        println!(
+            "Copying to memory at {:#08X}",
+            datum.start_address - program_start as u32 + at
+        );
         for (i, byte) in datum.data.iter().enumerate() {
-            memory[datum.start_address as usize + i + at as usize] = *byte;
+            memory[datum.start_address as usize - program_start + i + at as usize] = *byte;
         }
     }
     for amod in &program.modifications {

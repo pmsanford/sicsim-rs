@@ -1,4 +1,4 @@
-DISP    START   50
+DISP    START   300
 . Reset state
         LDA    #1
         STA     CURID
@@ -7,6 +7,8 @@ DISP    START   50
         AND     SWPIM
         SHIFTR  A,2
         STA     RPID
+. If it's 0, we're booting. Skip
+. storing state
         COMP   #0
         JEQ     FINDP
 . Store the current process's state
@@ -21,11 +23,17 @@ FINDP   LDA    @NPTR
         ADD    #3
         STA     CURPT
 . Look for the next PID that's not
-. the current running process
+. the current running process...
 SRCH    LDA    @CURPT
         AND     PIDMA
         COMP    RPID
         JEQ     AGAIN
+. ...and is in the ready state
+        LDA    @CURPT
+        AND     RBMAS
+        COMP   #0
+        JGT     AGAIN
+        JLT     AGAIN
 . We found a runnable process - set
 . it to running
         LDA    @CURPT
@@ -68,6 +76,8 @@ NPTR    BYTE    X'000200'
 . Location of the pointer to the
 . running PSB
 RPTR    BYTE    X'000203'
+. Mask for running status
+RBMAS   BYTE    X'C00000'
 . Mask for process ID in PSB
 PIDMA   BYTE    X'0F0000'
 . Mask for process ID in SW

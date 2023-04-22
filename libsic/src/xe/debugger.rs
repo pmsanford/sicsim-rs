@@ -35,19 +35,54 @@ struct RegState {
     pub I: Word,
 }
 
-fn format_sw(sw: Word) -> String {
-    let supervisor = if sw[SUP_BYTE] & SUP_MASK > 0 { 1 } else { 0 };
-    let state = if sw[0] & 0x40 > 0 { 1 } else { 0 };
-    let pid = (sw[0] & 0x3C) >> 2;
-    let cc = sw[0] & 0x03;
-    let mask = (sw[1] & 0xF0) >> 4;
-    let unused = sw[1] & 0x0F;
-    let icode = sw[2];
+fn format_sw(prev: Word, cur: Word) -> String {
+    let prev_supervisor = if prev[SUP_BYTE] & SUP_MASK > 0 { 1 } else { 0 };
+    let prev_state = if prev[0] & 0x40 > 0 { 1 } else { 0 };
+    let prev_pid = (prev[0] & 0x3C) >> 2;
+    let prev_cc = prev[0] & 0x03;
+    let prev_mask = (prev[1] & 0xF0) >> 4;
+    let prev_unused = prev[1] & 0x0F;
+    let prev_icode = prev[2];
 
-    format!(
-        "{} {} {:02} {:02b} {:04b} {:04b} {:#02X}",
-        supervisor, state, pid, cc, mask, unused, icode
-    )
+    let cur_supervisor = if cur[SUP_BYTE] & SUP_MASK > 0 { 1 } else { 0 };
+    let cur_state = if cur[0] & 0x40 > 0 { 1 } else { 0 };
+    let cur_pid = (cur[0] & 0x3C) >> 2;
+    let cur_cc = cur[0] & 0x03;
+    let cur_mask = (cur[1] & 0xF0) >> 4;
+    let cur_unused = cur[1] & 0x0F;
+    let cur_icode = cur[2];
+
+    let mut diff = Vec::new();
+
+    if prev_supervisor != cur_supervisor {
+        diff.push(format!("sup {} -> {}", prev_supervisor, cur_supervisor));
+    }
+
+    if prev_state != cur_state {
+        diff.push(format!("state {} -> {}", prev_state, cur_state));
+    }
+
+    if prev_pid != cur_pid {
+        diff.push(format!("pid {:02} -> {:02}", prev_pid, cur_pid));
+    }
+
+    if prev_cc != cur_cc {
+        diff.push(format!("cc {:02b} -> {:02b}", prev_cc, cur_cc));
+    }
+
+    if prev_mask != cur_mask {
+        diff.push(format!("mask {:04b} -> {:04b}", prev_mask, cur_mask));
+    }
+
+    if prev_unused != cur_unused {
+        diff.push(format!("unused {:04b} -> {:04b}", prev_unused, cur_unused));
+    }
+
+    if prev_icode != cur_icode {
+        diff.push(format!("icode {:#04X} -> {:#04X}", prev_icode, cur_icode));
+    }
+
+    diff.join(", ")
 }
 
 impl RegState {
@@ -114,11 +149,7 @@ impl RegState {
         }
 
         if self.SW != other.SW {
-            diffs.push(format!(
-                "SW {} -> {}",
-                format_sw(self.SW),
-                format_sw(other.SW)
-            ));
+            diffs.push(format!("SW [{}]", format_sw(self.SW, other.SW)));
         }
 
         if self.I != other.I {

@@ -2,35 +2,36 @@ use thiserror::Error;
 
 use super::op::{
     is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
-    ShiftOp, TwoRegOp, VariableOp,
+    ShiftOp, TwoRegOp, Variable, VariableOp,
 };
 use super::status_word::{check_cc, set_cc, supervisor_mode};
 use crate::device::Device;
 use crate::word::{
     f64_to_dword, i32_to_word, u32_to_dword, u32_to_word, DWord, DWordExt, Word, WordExt,
 };
+use crate::xe::op::SicOp;
 use std::cmp::Ordering;
 use std::mem;
 use std::{collections::HashMap, fmt::Debug};
 
 pub trait Debugger {
-    fn op_read(&self, vm_state: &SicXeVm, op: &Op);
-    fn op_executed(&self, vm_state: &SicXeVm, op: &Op);
-    fn interrupt(&self, vm_state: &SicXeVm, interrupt: Interrupt);
+    fn op_read(&mut self, vm_state: &SicXeVm, op: &Op);
+    fn op_executed(&mut self, vm_state: &SicXeVm, op: &Op);
+    fn interrupt(&mut self, vm_state: &SicXeVm, interrupt: Interrupt);
 }
 
 pub struct PrintlnDebugger;
 
 impl Debugger for PrintlnDebugger {
-    fn op_read(&self, _vm_state: &SicXeVm, op: &Op) {
-        println!("Executing {:?}", op);
+    fn op_read(&mut self, _vm_state: &SicXeVm, op: &Op) {
+        println!("{}: Executing {:?}", op.mnemonic(), op);
     }
 
-    fn op_executed(&self, vm_state: &SicXeVm, _op: &Op) {
-        println!("-----> State after: {:?}", vm_state);
+    fn op_executed(&mut self, vm_state: &SicXeVm, _op: &Op) {
+        println!("       State after: {:?}", vm_state);
     }
 
-    fn interrupt(&self, _vm_state: &SicXeVm, interrupt: Interrupt) {
+    fn interrupt(&mut self, _vm_state: &SicXeVm, interrupt: Interrupt) {
         println!("Saw interrupt {:?}", interrupt);
     }
 }
@@ -153,35 +154,79 @@ impl SicXeVm {
         address + idx
     }
 
-    fn calc_addr(&self, argument: u32, flags: &AddressFlags) -> Result<u32, OpError> {
+    pub fn debug_target_address(&self, op: &Variable, advance_pc: bool) -> Result<u32, OpError> {
+        Ok(self.debug_calc_address(op.address, &op.address_flags, advance_pc)?)
+    }
+
+    pub fn debug_calc_address(
+        &self,
+        argument: u32,
+        flags: &AddressFlags,
+        advance_pc: bool,
+    ) -> Result<u32, OpError> {
+        let mut pc = self.PC.as_i32();
+        if advance_pc {
+            pc += if flags.extended { 4 } else { 3 };
+        }
+        Ok(self.calc_addr_with(pc, argument, flags)?)
+    }
+
+    fn calc_addr_with(&self, pc: i32, argument: u32, flags: &AddressFlags) -> Result<u32, OpError> {
         Ok(match flags.mode {
             AddressMode::Compatiblity => self.index_addr(argument, flags),
             AddressMode::Simple => match flags.relative_to {
                 AddressRelativeTo::Direct => self.index_addr(argument, flags),
                 AddressRelativeTo::Base => self.index_addr(self.B.as_u32() + argument, flags),
-                AddressRelativeTo::PC => self.index_addr(
-                    (self.PC.as_i32() + simple_addr_signed(argument)) as u32,
-                    flags,
-                ),
+                AddressRelativeTo::PC => {
+                    self.index_addr((pc + simple_addr_signed(argument)) as u32, flags)
+                }
             },
             AddressMode::Immediate => match flags.relative_to {
                 AddressRelativeTo::Direct => argument,
                 AddressRelativeTo::Base => self.B.as_u32() + argument,
-                AddressRelativeTo::PC => (self.PC.as_i32() + simple_addr_signed(argument)) as u32,
+                AddressRelativeTo::PC => (pc + simple_addr_signed(argument)) as u32,
             },
             AddressMode::Indirect => match flags.relative_to {
                 AddressRelativeTo::Direct => self.word_at(argument)?.as_u32(),
                 AddressRelativeTo::Base => self.word_at(self.B.as_u32() + argument)?.as_u32(),
                 AddressRelativeTo::PC => self
-                    .word_at((self.PC.as_i32() + simple_addr_signed(argument)) as u32)?
+                    .word_at((pc + simple_addr_signed(argument)) as u32)?
                     .as_u32(),
             },
         })
     }
 
+    pub fn calc_addr(&self, argument: u32, flags: &AddressFlags) -> Result<u32, OpError> {
+        self.calc_addr_with(self.PC.as_i32(), argument, flags)
+    }
+
     fn cycle(&mut self) {
         self.interval_cycles += 1;
         self.cycles += 1;
+    }
+
+    fn debug_interrupt(&mut self, interrupt: Interrupt) {
+        let mut debugger = self.debugger.take();
+        if let Some(ref mut debugger) = debugger {
+            debugger.interrupt(self, interrupt);
+        }
+        self.debugger = debugger;
+    }
+
+    fn debug_op_read(&mut self, op: &Op) {
+        let mut debugger = self.debugger.take();
+        if let Some(ref mut debugger) = debugger {
+            debugger.op_read(self, op);
+        }
+        self.debugger = debugger;
+    }
+
+    fn debug_op_executed(&mut self, op: &Op) {
+        let mut debugger = self.debugger.take();
+        if let Some(ref mut debugger) = debugger {
+            debugger.op_executed(self, op);
+        }
+        self.debugger = debugger;
     }
 
     fn handle_interval(&mut self) {
@@ -190,9 +235,7 @@ impl SicXeVm {
             self.interval_cycles -= self.cycles_per_second / 1_000;
             self.I = u32_to_word(0.max(i - 1));
             if self.I.as_u32() == 0 {
-                if let Some(ref debugger) = self.debugger {
-                    debugger.interrupt(self, Interrupt::Timer);
-                }
+                self.debug_interrupt(Interrupt::Timer);
                 self.handle_interrupt(Interrupt::Timer)
                     .expect("Interval interrupt");
             }
@@ -379,9 +422,7 @@ impl SicXeVm {
     }
 
     fn program_interrupt(&mut self, error: OpError) {
-        if let Some(ref debugger) = self.debugger {
-            debugger.interrupt(self, Interrupt::Program);
-        }
+        self.debug_interrupt(Interrupt::Program);
         match error {
             OpError::AddressOutOfRange { .. } => {
                 // Code 02 = Address out of range
@@ -428,23 +469,17 @@ impl SicXeVm {
         let op = self.get_op_at_pc();
         if op.as_ref().map(is_privileged).unwrap_or(false) && !supervisor_mode(&self.SW) {
             // TODO: Interrupt, privileged instruction
-            if let Some(ref debugger) = self.debugger {
-                debugger.interrupt(self, Interrupt::Program);
-            }
+            self.debug_interrupt(Interrupt::Program);
             self.SW[2] = 1;
             self.handle_interrupt(Interrupt::Program)
                 .expect("Error in interrupt handler");
         }
         match op {
             Ok(op) => {
-                if let Some(ref debugger) = self.debugger {
-                    debugger.op_read(self, &op);
-                }
+                self.debug_op_read(&op);
                 self.PC = u32_to_word(self.PC.as_u32() + op.len());
                 if is_privileged(&op) && !supervisor_mode(&self.SW) {
-                    if let Some(ref debugger) = self.debugger {
-                        debugger.interrupt(self, Interrupt::Program);
-                    }
+                    self.debug_interrupt(Interrupt::Program);
                     self.SW[2] = 1;
                     self.handle_interrupt(Interrupt::Program)
                         .expect("Error in interrupt handler");
@@ -452,9 +487,7 @@ impl SicXeVm {
                 if let Err(err) = self.run_op(&op) {
                     self.program_interrupt(err);
                 }
-                if let Some(ref debugger) = self.debugger {
-                    debugger.op_executed(self, &op);
-                }
+                self.debug_op_executed(&op);
             }
             Err(error) => {
                 self.program_interrupt(error);

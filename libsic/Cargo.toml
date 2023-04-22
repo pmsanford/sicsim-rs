@@ -9,4 +9,7 @@ edition = "2021"
 num = "0.4.0"
 num-derive = "0.3.3"
 num-traits = "0.2.14"
+sicdbg = { version = "0.1.0", path = "../sicdbg" }
+strum = { version = "0.24.1", features = ["derive"] }
+strum_macros = "0.24.3"
 thiserror = "1.0.30"

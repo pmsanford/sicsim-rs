@@ -50,6 +50,8 @@ pub struct ParsedLine {
     pub extended: bool,
     pub size: usize,
     pub offset: usize,
+    pub line_no: usize,
+    pub text: String,
 }
 
 impl ParsedLine {
@@ -157,7 +159,7 @@ impl FirstPass {
             .iter()
             .enumerate()
             .filter_map(|(line_no, line)| {
-                pass.parse_line(line)
+                pass.parse_line(line, line_no)
                     .context(format!("Parse error on line {}", line_no))
                     .transpose()
             })
@@ -179,12 +181,12 @@ impl FirstPass {
         })
     }
 
-    fn parse_line(&mut self, line: &str) -> Result<Option<ParsedLine>> {
+    fn parse_line(&mut self, line: &str, line_no: usize) -> Result<Option<ParsedLine>> {
         let line = self
             .blocks
             .get_mut(&self.current)
             .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find block {}", self.current)))?
-            .parse_line(&self.current, line);
+            .parse_line(&self.current, line, line_no);
 
         if let Ok(Some(ref line)) = line {
             if matches!(line.directive, Directive::Assembler(Assembler::USE)) {
@@ -269,7 +271,12 @@ impl ProgramBlock {
         Ok(value)
     }
 
-    fn parse_line(&mut self, block: &str, line: &str) -> Result<Option<ParsedLine>> {
+    fn parse_line(
+        &mut self,
+        block: &str,
+        line: &str,
+        line_no: usize,
+    ) -> Result<Option<ParsedLine>> {
         let tokens = LineTokens::from_line(line)?;
         tokens
             .map(|tokens| {
@@ -333,6 +340,8 @@ impl ProgramBlock {
                     argument: tokens.argument,
                     size,
                     offset,
+                    line_no,
+                    text: line.into(),
                 })
             })
             .transpose()

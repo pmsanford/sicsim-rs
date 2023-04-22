@@ -1,7 +1,12 @@
 use num::FromPrimitive;
 use num_derive::FromPrimitive;
 
-#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+pub trait SicOp {
+    fn mnemonic(&self) -> String;
+    fn machine_code(&self) -> u8;
+}
+
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum OneByteOp {
     FIX = 0xC4,
     FLOAT = 0xC0,
@@ -13,13 +18,13 @@ pub enum OneByteOp {
     TIO = 0xF8,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum OneRegOp {
     CLEAR = 0xB4,
     TIXR = 0xB8,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum TwoRegOp {
     ADDR = 0x90,
     COMPR = 0xA0,
@@ -31,13 +36,13 @@ pub enum TwoRegOp {
     SUBR = 0x94,
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum ShiftOp {
     SHIFTL = 0xA4,
     SHIFTR = 0xA8,
 }
 
-#[derive(Copy, Clone, Debug, FromPrimitive)]
+#[derive(Copy, Clone, Debug, FromPrimitive, strum_macros::Display)]
 pub enum Register {
     A = 0,
     X = 1,
@@ -72,10 +77,30 @@ pub struct TwoReg {
     pub r2: Register,
 }
 
+impl SicOp for TwoReg {
+    fn mnemonic(&self) -> String {
+        self.opcode.to_string()
+    }
+
+    fn machine_code(&self) -> u8 {
+        self.opcode as u8
+    }
+}
+
 #[derive(Debug)]
 pub struct OneReg {
     pub opcode: OneRegOp,
     pub r1: Register,
+}
+
+impl SicOp for OneReg {
+    fn mnemonic(&self) -> String {
+        self.opcode.to_string()
+    }
+
+    fn machine_code(&self) -> u8 {
+        self.opcode as u8
+    }
 }
 
 #[derive(Debug)]
@@ -83,6 +108,16 @@ pub struct Shift {
     pub opcode: ShiftOp,
     pub r1: Register,
     pub n: u8,
+}
+
+impl SicOp for Shift {
+    fn mnemonic(&self) -> String {
+        self.opcode.to_string()
+    }
+
+    fn machine_code(&self) -> u8 {
+        self.opcode as u8
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -162,6 +197,16 @@ pub struct Variable {
     pub address: u32,
 }
 
+impl SicOp for Variable {
+    fn mnemonic(&self) -> String {
+        self.opcode.to_string()
+    }
+
+    fn machine_code(&self) -> u8 {
+        self.opcode as u8
+    }
+}
+
 const SVC: u8 = 0xB0;
 
 #[derive(Debug)]
@@ -172,6 +217,30 @@ pub enum Op {
     Shift(Shift),
     Svc(u8),
     Variable(Variable),
+}
+
+impl SicOp for Op {
+    fn mnemonic(&self) -> String {
+        match self {
+            Op::OneByte(o) => o.to_string(),
+            Op::OneReg(o) => o.mnemonic(),
+            Op::TwoReg(o) => o.mnemonic(),
+            Op::Shift(o) => o.mnemonic(),
+            Op::Svc(_) => "SVC".into(),
+            Op::Variable(o) => o.mnemonic(),
+        }
+    }
+
+    fn machine_code(&self) -> u8 {
+        match self {
+            Op::OneByte(o) => *o as u8,
+            Op::OneReg(o) => o.machine_code(),
+            Op::TwoReg(o) => o.machine_code(),
+            Op::Shift(o) => o.machine_code(),
+            Op::Svc(_) => 0xB0,
+            Op::Variable(o) => o.machine_code(),
+        }
+    }
 }
 
 fn calc_address(bytes: [u8; 4], flags: &AddressFlags) -> u32 {
@@ -341,7 +410,7 @@ pub fn is_privileged(op: &Op) -> bool {
     }
 }
 
-#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, strum_macros::Display)]
 pub enum VariableOp {
     ADD = 0x18,
     ADDF = 0x58,

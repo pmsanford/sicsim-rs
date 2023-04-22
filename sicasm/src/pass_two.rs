@@ -8,6 +8,7 @@ use crate::{
 };
 use anyhow::{Context, Result};
 use libsic::xe::op::{AddressMode, AddressRelativeTo, OneReg, Op, Shift, TwoReg, Variable};
+use sicdbg::Sdb;
 
 struct PassTwo {
     cur_text: Option<Text>,
@@ -17,6 +18,7 @@ struct PassTwo {
     start_addr: usize,
     end_line: ParsedLine,
     pass_one: PassOne,
+    debug: Sdb,
 }
 
 impl PassTwo {
@@ -37,7 +39,7 @@ impl PassTwo {
         let length = end_line.offset;
 
         let records = vec![Record::Header {
-            name,
+            name: name.clone(),
             start: start_addr,
             length,
         }];
@@ -50,14 +52,19 @@ impl PassTwo {
             start_addr,
             end_line,
             pass_one,
+            debug: Sdb::new(&name, start_addr),
         })
     }
 
-    fn assemble_lines(mut self) -> Result<Vec<Record>> {
+    fn assemble_lines(mut self) -> Result<(Vec<Record>, Sdb)> {
         let lines = mem::take(&mut self.pass_one.parsed_lines);
-        for (line_no, line) in lines.iter().enumerate() {
-            self.assemble_line(line)
-                .context(format!("Error in {:?} on line {}", line.directive, line_no))?;
+        for line in lines.iter() {
+            self.debug
+                .add_line(line.offset as u32, line.text.clone(), line.line_no);
+            self.assemble_line(line).context(format!(
+                "Error in {:?} on line {}",
+                line.directive, line.line_no
+            ))?;
         }
 
         for modification in self.modifications {
@@ -72,7 +79,7 @@ impl PassTwo {
                 + self.start_addr,
         });
 
-        Ok(self.records)
+        Ok((self.records, self.debug))
     }
 
     fn add_instruction(&mut self, offset: usize, mut instruction: Data) {
@@ -228,7 +235,7 @@ impl PassTwo {
     }
 }
 
-pub fn pass_two(pass_one: PassOne) -> Result<Vec<Record>> {
+pub fn pass_two(pass_one: PassOne) -> Result<(Vec<Record>, Sdb)> {
     let pass = PassTwo::new(pass_one)?;
     pass.assemble_lines()
 }

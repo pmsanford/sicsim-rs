@@ -1,6 +1,7 @@
 use libsic::{
     word::{u32_to_word, DWordExt},
     xe::{
+        debugger::SdbDebugger,
         load::{load_program_at, load_program_to},
         op::AddressFlags,
         vm::{PrintlnDebugger, SicXeVm},
@@ -39,7 +40,7 @@ const RUNNING_PTR: u32 = 0x203;
 fn main() {
     let mut vm = SicXeVm::empty();
 
-    vm.debugger = Some(Box::new(PrintlnDebugger));
+    vm.debugger = Some(Box::new(SdbDebugger::new()));
 
     let bootstrap = include_str!("bin/bootloader.ebj");
     println!("Bootstrap: {}", bootstrap);

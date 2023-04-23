@@ -54,18 +54,30 @@ pub struct ParsedLine {
     pub text: String,
 }
 
+enum Target {
+    Constant,
+    Label,
+}
+
 impl ParsedLine {
-    fn target(&self, labels: &Labels) -> Result<Option<usize>> {
+    //TODO: Is the ltorg handling here wrt target type correct?
+    fn target(&self, labels: &Labels) -> Result<Option<(Target, usize)>> {
         if let ArgumentToken::String(argument) = self.argument.clone() {
             if argument.mode == AddressMode::Immediate
                 && Regex::new("[0-9][0-9]*")?.is_match(&argument.arg_string)
             {
-                return Ok(Some(argument.arg_string.parse().map_err(|e| {
-                    anyhow::Error::msg("Couldn't parse immediate arg").context(e)
-                })?));
+                return Ok(Some((
+                    Target::Constant,
+                    argument.arg_string.parse().map_err(|e| {
+                        anyhow::Error::msg("Couldn't parse immediate arg").context(e)
+                    })?,
+                )));
             }
 
-            Ok(Some(labels.absolute(&argument.arg_string)?))
+            Ok(Some((
+                Target::Label,
+                labels.absolute(&argument.arg_string)?,
+            )))
         } else {
             Ok(None)
         }
@@ -93,19 +105,24 @@ impl ParsedLine {
         let indexed = self.argument.get_string().map_or(false, |arg| arg.indexed);
 
         let target = if let ArgumentToken::Literal(ref la) = self.argument {
-            Some(*littab.get(la).ok_or_else(|| {
-                anyhow::Error::msg(format!("Couldn't find literal argument {:?}", la))
-            })?)
+            Some((
+                Target::Constant,
+                *littab.get(la).ok_or_else(|| {
+                    anyhow::Error::msg(format!("Couldn't find literal argument {:?}", la))
+                })?,
+            ))
         } else {
             self.target(labels)?
         };
 
         let target = if target.is_none() && self.directive == Directive::Variable(VariableOp::RSUB)
         {
-            0
+            (Target::Constant, 0)
         } else {
             target.ok_or_else(|| anyhow::Error::msg("Expected target"))?
         };
+
+        let (target_type, target) = target;
 
         let pc = self.offset + 3;
 
@@ -114,16 +131,16 @@ impl ParsedLine {
             .filter(|base| target >= *base)
             .map(|base| target - base);
 
-        let (disp, relative_to) = match (mode, self.extended, pc_disp, base_disp) {
-            (AddressMode::Immediate, _, _, _) | (_, true, _, _) => {
+        let (disp, relative_to) = match (mode, target_type, self.extended, pc_disp, base_disp) {
+            (AddressMode::Immediate, Target::Constant, _, _, _) | (_, _, true, _, _) => {
                 (target, AddressRelativeTo::Direct)
             }
-            (_, _, pcd, _) if i64::from(MIN_PC) < pcd && pcd < i64::from(MAX_PC) =>
+            (_, _, _, pcd, _) if i64::from(MIN_PC) < pcd && pcd < i64::from(MAX_PC) =>
             {
                 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                 (pc_disp as usize, AddressRelativeTo::PC)
             }
-            (_, _, _, Some(bd)) if bd < MAX_DISP as usize => (bd, AddressRelativeTo::Base),
+            (_, _, _, _, Some(bd)) if bd < MAX_DISP as usize => (bd, AddressRelativeTo::Base),
             _ if target < MAX_DISP as usize => (target, AddressRelativeTo::Direct),
             _ => {
                 return Err(anyhow::Error::msg(

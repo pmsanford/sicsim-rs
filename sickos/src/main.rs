@@ -25,14 +25,14 @@ fn read_ps(vm: &mut SicXeVm, address: u32) {
     println!("B: {:#08x}", vm.word_at(address + 15).unwrap().as_u32());
     println!("S: {:#08x}", vm.word_at(address + 18).unwrap().as_u32());
     println!("T: {:#08x}", vm.word_at(address + 21).unwrap().as_u32());
-    println!("F: {}", vm.dword_at(address + 24).unwrap().as_f64());
+    println!("F: {:#08x}", vm.dword_at(address + 24).unwrap().as_u64());
 }
 
-const PSB_ONE_STATUS: u32 = 0x206;
-const PSB_TWO_STATUS: u32 = 0x227;
+const PSB_ONE_STATUS: u32 = 0x30D;
+const PSB_TWO_STATUS: u32 = 0x32E;
 const ITERATOR_COUNTER: u32 = 0x7E5;
 const MULTIPLIER_COUNTER: u32 = 0xBD6;
-const RUNNING_PTR: u32 = 0x203;
+const RUNNING_PTR: u32 = 0x30A;
 
 fn load_program(vm: &mut SicXeVm, debugger: &mut SdbDebugger, name: &str, load_at: u32) {
     let mut path = PathBuf::from("./src/bin/");
@@ -53,15 +53,15 @@ fn main() {
 
     load_program(&mut vm, &mut debugger, "program_int", 0x30);
 
-    load_program(&mut vm, &mut debugger, "dispatcher", 0x300);
+    load_program(&mut vm, &mut debugger, "dispatcher", 0x200);
 
-    print_word_at(&mut vm, "First dispatcher", 0x300);
-
-    load_program(&mut vm, &mut debugger, "psbs", 0x200);
+    print_word_at(&mut vm, "First dispatcher", 0x203);
 
     load_program(&mut vm, &mut debugger, "iterator", 2000);
 
     load_program(&mut vm, &mut debugger, "multiplier", 3000);
+
+    print_word_at(&mut vm, "Second dispatcher", 0x203);
 
     print_word_at(&mut vm, "iterator status", PSB_ONE_STATUS);
     print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
@@ -95,6 +95,8 @@ fn main() {
     print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
     print_word_at(&mut vm, "iterator counter", ITERATOR_COUNTER);
     print_word_at(&mut vm, "multipler counter", MULTIPLIER_COUNTER);
+    print_word_at(&mut vm, "Running pointer", 0x30A);
+    print_word_at(&mut vm, "First status block", 0x30D);
 
     println!("Iterator:");
     read_ps(&mut vm, PSB_ONE_STATUS + 3);

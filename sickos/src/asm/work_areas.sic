@@ -11,7 +11,7 @@ PCCST   RESW    10
         RESB    12
 . Timer
 NEWSW   BYTE    X'80E000'
-NEWPC   BYTE    X'000300'
+NEWPC   BYTE    X'000200'
 PCCST   RESW    10
         RESB    12
 . I/O

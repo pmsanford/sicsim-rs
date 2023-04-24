@@ -44,6 +44,12 @@ impl PassTwo {
             length,
         }];
 
+        let mut debug = Sdb::new(&name, start_addr);
+
+        for (label, details) in pass_one.labels.labels.iter() {
+            debug.add_label(label.clone(), details.offset as u32);
+        }
+
         Ok(Self {
             cur_text: None,
             cur_base: None,
@@ -52,7 +58,7 @@ impl PassTwo {
             start_addr,
             end_line,
             pass_one,
-            debug: Sdb::new(&name, start_addr),
+            debug,
         })
     }
 

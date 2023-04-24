@@ -1,0 +1,7 @@
+WCTR    START   0
+. Don't load A - rely on saved register state
+LOOP    ADD    #1
+        STA     COUNTER
+        J       LOOP
+COUNTER RESW    1
+        END     WCTR

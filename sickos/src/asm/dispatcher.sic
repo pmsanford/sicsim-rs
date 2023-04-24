@@ -140,9 +140,9 @@ OLDX    RESW    1
 OLDF    RESB    4
 . ==> HEADER
 . PCNT: Count of programs, including finished ones
+. Address 0x307
+PCNT    BYTE    X'000003'
 . Address 0x30A
-PCNT    BYTE    X'000002'
-. Address 0x30D
 RPTR    RESW    1
 . ==> ITER
 . STATE 
@@ -152,22 +152,19 @@ RPTR    RESW    1
 . 4-7   Process ID
 . 8-23  Unused
 .
-. Address 0x310
+. Address 0x30D
 FPSB    BYTE    X'010000'
-. Address 0x313
-ISW     BYTE    X'040000'
-. Address 0x316
-IPC     BYTE    X'0007D0'
-. Address 0x319
-IREGS   RESW    8
-. ==> MULR
-. Address 0x331
-MSTAT   BYTE    X'020000'
-. Address 0x334
-MSW     BYTE    X'080000'
-. Address 0x337
-MPC     BYTE    X'000BB8'
-. Address 0x33A
-MREGS   RESW    8
-PSBLI   EQU     FPSB+512
+FSW     BYTE    X'040000'
+FPC     BYTE    X'0007D0'
+FREGS   RESW    8
+. Address 0x32E
+SPSB    BYTE    X'020000'
+SSW     BYTE    X'080000'
+SPC     BYTE    X'0007E0'
+SREGS   RESW    8
+. Addres 0x34F
+TPSB    BYTE    X'030000'
+TSW     BYTE    X'0C0000'
+TPC     BYTE    X'0007F0'
+TREGS   RESW    8
         END     DISP

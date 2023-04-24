@@ -16,6 +16,7 @@ pub struct Sdb {
     pub start: usize,
     pub lines: Vec<SdbLine>,
     pub offset_map: HashMap<u32, usize>,
+    pub labels: HashMap<String, u32>,
 }
 
 impl Sdb {
@@ -25,11 +26,16 @@ impl Sdb {
             start,
             lines: Vec::new(),
             offset_map: HashMap::new(),
+            labels: HashMap::new(),
         }
     }
 
     pub fn to_string(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
+    }
+
+    pub fn add_label(&mut self, label: String, offset: u32) {
+        self.labels.insert(label, offset);
     }
 
     pub fn add_line(&mut self, offset: u32, text: String, line_number: usize) {

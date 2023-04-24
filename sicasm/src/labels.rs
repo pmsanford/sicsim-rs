@@ -10,7 +10,7 @@ pub struct Label {
 
 #[derive(Debug, Clone)]
 pub struct Labels {
-    labels: HashMap<String, Label>,
+    pub labels: HashMap<String, Label>,
 }
 
 impl Labels {

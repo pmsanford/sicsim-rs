@@ -28,11 +28,12 @@ fn read_ps(vm: &mut SicXeVm, address: u32) {
     println!("F: {:#08x}", vm.dword_at(address + 24).unwrap().as_u64());
 }
 
-const PSB_ONE_STATUS: u32 = 0x30D;
-const PSB_TWO_STATUS: u32 = 0x32E;
-const ITERATOR_COUNTER: u32 = 0x7E5;
-const MULTIPLIER_COUNTER: u32 = 0xBD6;
 const RUNNING_PTR: u32 = 0x30A;
+const PSB_BASE: u32 = RUNNING_PTR + 3;
+
+fn psb_idx(idx: u32) -> u32 {
+    PSB_BASE + (33 * idx)
+}
 
 fn load_program(vm: &mut SicXeVm, debugger: &mut SdbDebugger, name: &str, load_at: u32) {
     let mut path = PathBuf::from("./src/bin/");
@@ -55,22 +56,13 @@ fn main() {
 
     load_program(&mut vm, &mut debugger, "dispatcher", 0x200);
 
-    print_word_at(&mut vm, "First dispatcher", 0x203);
+    load_program(&mut vm, &mut debugger, "wake_counter", 0x7D0);
 
-    load_program(&mut vm, &mut debugger, "iterator", 2000);
+    load_program(&mut vm, &mut debugger, "wake_counter", 0x7E0);
 
-    load_program(&mut vm, &mut debugger, "multiplier", 3000);
+    load_program(&mut vm, &mut debugger, "wake_counter", 0x7F0);
 
-    print_word_at(&mut vm, "Second dispatcher", 0x203);
-
-    print_word_at(&mut vm, "iterator status", PSB_ONE_STATUS);
-    print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
-    print_word_at(&mut vm, "iterator sw", PSB_ONE_STATUS + 3);
-    print_word_at(&mut vm, "multiplier sw", PSB_TWO_STATUS + 3);
-    print_word_at(&mut vm, "iterator counter", ITERATOR_COUNTER);
-    print_word_at(&mut vm, "multipler counter", MULTIPLIER_COUNTER);
-
-    vm.debugger = Some(Box::new(debugger));
+    vm.debugger = Some(Box::new(debugger.clone()));
 
     // Set interrupt timer at 10 sec
     vm.I = [0, 0, 10];
@@ -80,7 +72,7 @@ fn main() {
     vm.set_at(
         RUNNING_PTR,
         &AddressFlags::default(),
-        u32_to_word(PSB_ONE_STATUS),
+        u32_to_word(psb_idx(0)),
     )
     .unwrap();
     // Need to start in privileged mode
@@ -90,16 +82,29 @@ fn main() {
 
     println!("Stopped: {:?}", vm.run_until(100000));
 
-    println!("X: {}", vm.X.as_u32());
-    print_word_at(&mut vm, "iterator status", PSB_ONE_STATUS);
-    print_word_at(&mut vm, "multiplier status", PSB_TWO_STATUS);
-    print_word_at(&mut vm, "iterator counter", ITERATOR_COUNTER);
-    print_word_at(&mut vm, "multipler counter", MULTIPLIER_COUNTER);
-    print_word_at(&mut vm, "Running pointer", 0x30A);
-    print_word_at(&mut vm, "First status block", 0x30D);
+    print_word_at(&mut vm, "Running pointer", RUNNING_PTR);
+    print_word_at(
+        &mut vm,
+        "First status block",
+        debugger.address_for_label("DISP", "FPSB").unwrap(),
+    );
 
-    println!("Iterator:");
-    read_ps(&mut vm, PSB_ONE_STATUS + 3);
-    println!("Multiplier:");
-    read_ps(&mut vm, PSB_TWO_STATUS + 3);
+    read_ps(&mut vm, psb_idx(0) + 3);
+    print_word_at(
+        &mut vm,
+        "First counter",
+        debugger.address_for_label("WCTR", "COUNTER").unwrap(),
+    );
+    read_ps(&mut vm, psb_idx(1) + 3);
+    print_word_at(
+        &mut vm,
+        "Second counter",
+        debugger.address_for_label("WCTR_1", "COUNTER").unwrap(),
+    );
+    read_ps(&mut vm, psb_idx(2) + 3);
+    print_word_at(
+        &mut vm,
+        "Third status block",
+        debugger.address_for_label("WCTR_2", "COUNTER").unwrap(),
+    );
 }

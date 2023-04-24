@@ -182,10 +182,12 @@ impl Display for LoadError {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SdbDebugger {
     verbose: bool,
     // TODO: Is there a better way to do this mapping?
     programs: HashMap<(u32, u32), LoadedProgram>,
+    labels: HashMap<String, HashMap<String, u32>>,
     last_reg_state: RegState,
 }
 
@@ -195,6 +197,7 @@ impl SdbDebugger {
             verbose: false,
             programs: HashMap::new(),
             last_reg_state: RegState::default(),
+            labels: HashMap::new(),
         }
     }
 
@@ -203,6 +206,7 @@ impl SdbDebugger {
             verbose: true,
             programs: HashMap::new(),
             last_reg_state: RegState::default(),
+            labels: HashMap::new(),
         }
     }
 
@@ -212,6 +216,21 @@ impl SdbDebugger {
         let last_offset = *sdb.offset_map.keys().max().ok_or(LoadError)?;
 
         let last_address = loaded_at + last_offset;
+
+        //TODO: This is a mess
+        for (label, offset) in sdb.labels.iter() {
+            let entry = self
+                .labels
+                .entry(label.clone())
+                .or_insert_with(HashMap::new);
+            let mut name = sdb.name.clone();
+            let mut ctr = 0;
+            while entry.contains_key(&name) {
+                ctr += 1;
+                name = format!("{}_{}", sdb.name, ctr);
+            }
+            entry.insert(name, loaded_at + offset);
+        }
 
         self.programs.insert(
             (loaded_at, last_address),
@@ -232,6 +251,13 @@ impl SdbDebugger {
         }
 
         None
+    }
+
+    pub fn address_for_label(&self, program: &str, label: &str) -> Option<u32> {
+        self.labels
+            .get(label)
+            .and_then(|progs| progs.get(program))
+            .copied()
     }
 }
 

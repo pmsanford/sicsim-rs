@@ -1,23 +1,28 @@
 DISP    START   0
-. Reset state
-        LDA    #1
-        STA     CURID
 . Load the currently running PID
         LDA    @OLDPS
         AND     SWPIM
         SHIFTR  A,2
         STA     RPID
-. If it's 0, we're booting. Skip
-. storing state
+. If it's 0, we're booting. Jump
+. to init.
         COMP   #0
-        JEQ     FINDP
+        JEQ     INIT
 . Store the current process's state
 . in its PSB
         LDA     RPTR
         JSUB    STORE
-. Move pointer to first PSB
-FINDP   LDA    #FPSB
+        J       FINDP
+INIT    LDA    #FPSB
         STA     CURPT
+        LDA    #1
+        STA     CURID
+        J       FOUND
+. Move pointer to the PSB after
+. the running PSB
+FINDP   LDA     RPTR
+        STA     CURPT
+        J       AGAIN
 . Look for the next PID that's not
 . the current running process...
 SRCH    LDA    @CURPT
@@ -32,7 +37,7 @@ SRCH    LDA    @CURPT
         JLT     AGAIN
 . We found a runnable process - set
 . it to running
-        LDA    @CURPT
+FOUND   LDA    @CURPT
         AND     RUNMA
         OR      RUNSE
         STA    @CURPT
@@ -53,13 +58,18 @@ AGAIN   LDA     CURID
         STA     CURID
         COMP    PCNT
 . If we're past the end of the
-. PSB list, just halt for now
-OUT     JGT     OUT
+. PSB list, jump to the top
+        JGT     TOTOP
 . Move the pointer to the next
 . PSB and jump back to search
 . again
         LDA     CURPT
         ADD     PSBSZ
+        STA     CURPT
+        J       SRCH
+TOTOP   LDA    #1
+        STA     CURID
+        LDA    #FPSB
         STA     CURPT
         J       SRCH
 . Size of a PSB in bytes

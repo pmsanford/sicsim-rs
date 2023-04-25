@@ -1,8 +1,8 @@
 use std::{fs, path::PathBuf};
 
 use libsic::{
-    word::{u32_to_word, DWordExt},
-    xe::{debugger::SdbDebugger, load::load_program_at, op::AddressFlags, vm::SicXeVm},
+    word::DWordExt,
+    xe::{debugger::SdbDebugger, load::load_program_at, vm::SicXeVm},
     WordExt,
 };
 
@@ -26,13 +26,6 @@ fn read_ps(vm: &mut SicXeVm, address: u32) {
     println!("S: {:#08x}", vm.word_at(address + 18).unwrap().as_u32());
     println!("T: {:#08x}", vm.word_at(address + 21).unwrap().as_u32());
     println!("F: {:#08x}", vm.dword_at(address + 24).unwrap().as_u64());
-}
-
-const RUNNING_PTR: u32 = 0x30A;
-const PSB_BASE: u32 = RUNNING_PTR + 3;
-
-fn psb_idx(idx: u32) -> u32 {
-    PSB_BASE + (33 * idx)
 }
 
 fn load_program(vm: &mut SicXeVm, debugger: &mut SdbDebugger, name: &str, load_at: u32) {
@@ -68,13 +61,6 @@ fn main() {
     vm.I = [0, 0, 10];
     // Start in dispatcher
     vm.set_pc(0);
-    // Set pointer to running program
-    vm.set_at(
-        RUNNING_PTR,
-        &AddressFlags::default(),
-        u32_to_word(psb_idx(0)),
-    )
-    .unwrap();
     // Need to start in privileged mode
     vm.SW[0] |= 0x80;
 
@@ -82,26 +68,30 @@ fn main() {
 
     println!("Stopped: {:?}", vm.run_until(100000));
 
-    print_word_at(&mut vm, "Running pointer", RUNNING_PTR);
+    print_word_at(
+        &mut vm,
+        "Running pointer",
+        debugger.address_for_label("DISP", "RPTR").unwrap(),
+    );
     print_word_at(
         &mut vm,
         "First status block",
         debugger.address_for_label("DISP", "FPSB").unwrap(),
     );
 
-    read_ps(&mut vm, psb_idx(0) + 3);
+    read_ps(&mut vm, debugger.address_for_label("DISP", "FSW").unwrap());
     print_word_at(
         &mut vm,
         "First counter",
         debugger.address_for_label("WCTR", "COUNTER").unwrap(),
     );
-    read_ps(&mut vm, psb_idx(1) + 3);
+    read_ps(&mut vm, debugger.address_for_label("DISP", "SSW").unwrap());
     print_word_at(
         &mut vm,
         "Second counter",
         debugger.address_for_label("WCTR_1", "COUNTER").unwrap(),
     );
-    read_ps(&mut vm, psb_idx(2) + 3);
+    read_ps(&mut vm, debugger.address_for_label("DISP", "TSW").unwrap());
     print_word_at(
         &mut vm,
         "Third status block",

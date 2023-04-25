@@ -691,6 +691,7 @@ impl SicXeVm {
                     }
                     VariableOp::STI => {
                         self.I = self.fetch_word(op.address, &op.address_flags)?;
+                        self.interval_cycles = 0;
                     }
                 }
             }

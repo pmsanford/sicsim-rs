@@ -2,6 +2,7 @@
 members = [
   "libsic",
   "sicasm",
+  "sicasm2",
   "sicdbg",
   "sickos",
   "sicsim"

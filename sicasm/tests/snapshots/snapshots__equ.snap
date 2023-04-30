@@ -1,6 +1,6 @@
 ---
-source: tests/snapshots.rs
+source: sicasm/tests/snapshots.rs
 expression: assembled
 ---
-"HTEQU  00000000010C\nT0000000C0101006D000C75000F3F2FFD\nE000000\n"
+"HTEQU  00000000010C\nT0000000C0120FD6D20067520063F2FFD\nE000000\n"
 

@@ -1,6 +1,6 @@
 ---
-source: tests/snapshots.rs
+source: sicasm/tests/snapshots.rs
 expression: assembled
 ---
-"HTORG  00000000045E\nT000000090100092900093F2FFD\nE000000\n"
+"HTORG  00000000045E\nT000000090120062920033F2FFD\nE000000\n"
 

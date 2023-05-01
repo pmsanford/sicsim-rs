@@ -3,10 +3,14 @@ use std::str::FromStr;
 use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp};
 use nom::{
     branch::alt,
-    bytes::complete::{tag, take_while1},
-    character::complete::{alpha1, alphanumeric0, digit1, space1},
-    combinator::{map, opt, recognize},
+    bytes::complete::{is_not, tag, take, take_until, take_until1, take_while1},
+    character::{
+        complete::{alpha1, alphanumeric0, anychar, digit1, none_of, space1},
+        is_newline,
+    },
+    combinator::{all_consuming, eof, map, map_parser, map_res, opt, recognize},
     error::ErrorKind,
+    multi::{many0, many1},
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
@@ -19,7 +23,7 @@ pub enum ParseError {
     InvalidOpcode(String),
 }
 
-#[derive(Debug, EnumString)]
+#[derive(Debug, EnumString, Eq, PartialEq)]
 pub enum Assembler {
     START,
     BASE,
@@ -84,12 +88,71 @@ impl Op {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum ExprOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+}
+
+pub fn expr_op(i: &str) -> IResult<&str, ExprOp> {
+    alt((
+        map(tag("+"), |_| ExprOp::Add),
+        map(tag("-"), |_| ExprOp::Subtract),
+        map(tag("*"), |_| ExprOp::Multiply),
+        map(tag("/"), |_| ExprOp::Divide),
+    ))(i)
+}
+
 #[derive(Debug)]
+pub enum ExprTarget {
+    Argument(Value),
+    Expr(Box<Expr>),
+}
+
+pub fn expr_target(i: &str) -> IResult<&str, ExprTarget> {
+    alt((
+        map(all_consuming(value), ExprTarget::Argument),
+        map(expr, |e| ExprTarget::Expr(Box::new(e))),
+    ))(i)
+}
+
+#[derive(Debug)]
+pub struct Expr {
+    pub value: Value,
+    pub op: ExprOp,
+    pub target: ExprTarget,
+}
+
+pub fn expr(i: &str) -> IResult<&str, Expr> {
+    let (i, value) = value(i)?;
+    let (i, op) = expr_op(i)?;
+    let (i, target) = expr_target(i)?;
+
+    Ok((i, Expr { value, op, target }))
+}
+
+#[derive(Debug, Eq, PartialEq)]
 pub struct Label(String);
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Value {
+    Constant(Vec<u8>),
+    Label(Label),
+}
+
 #[derive(Debug)]
 pub enum Argument {
-    Constant(i32),
-    Label(Label),
+    Value(Value),
+    Expr(Expr),
+}
+
+pub fn argument(i: &str) -> IResult<&str, Argument> {
+    // Note that order is important here - the firs tone to succeed
+    // is returned, and label will match an expression that starts with
+    // a label.
+    alt((map(expr, Argument::Expr), map(value, Argument::Value)))(i)
 }
 
 pub fn label(i: &str) -> IResult<&str, Label> {
@@ -105,25 +168,49 @@ pub fn op(i: &str) -> IResult<&str, Op> {
     Ok((i, op))
 }
 
-pub fn argument(i: &str) -> IResult<&str, Argument> {
-    let aposdelimited = |starts| preceded(starts, delimited(tag("'"), digit1, tag("'")));
-    let (i, res): (&str, Argument) = alt((
-        map(aposdelimited(tag("X")), |g: &str| {
-            Argument::Constant(g.parse().unwrap())
+pub fn hex_bytes(i: &str) -> IResult<&str, Vec<u8>> {
+    many1(map_res(take(2usize), |b| u8::from_str_radix(b, 16)))(i)
+}
+
+pub fn char_bytes(i: &str) -> IResult<&str, Vec<u8>> {
+    many1(map(anychar, |c| c as u8))(i)
+}
+
+pub fn value(i: &str) -> IResult<&str, Value> {
+    let aposdelimited = |starts| preceded(starts, delimited(tag("'"), take_until1("'"), tag("'")));
+    // Note that order is important here - label will match a constant
+    // that starts with X or C
+    let (i, res): (&str, Value) = alt((
+        map(
+            map_parser(aposdelimited(tag("X")), hex_bytes),
+            Value::Constant,
+        ),
+        map(
+            map_parser(aposdelimited(tag("C")), char_bytes),
+            Value::Constant,
+        ),
+        map_res(digit1, |g: &str| {
+            let number = g.parse::<i32>()?;
+            let mut number = number.to_be_bytes();
+            let neg = number[0] & 0x80 > 0;
+            if neg {
+                number[1] |= 0x80;
+            } else {
+                number[1] &= 0x7F;
+            }
+            Ok::<Value, <i32 as FromStr>::Err>(Value::Constant(vec![
+                number[1], number[2], number[3],
+            ]))
         }),
-        map(aposdelimited(tag("C")), |g: &str| {
-            Argument::Constant(g.parse().unwrap())
-        }),
-        map(digit1, |g: &str| Argument::Constant(g.parse().unwrap())),
         map(recognize(pair(alpha1, alphanumeric0)), |g: &str| {
-            Argument::Label(Label(g.into()))
+            Value::Label(Label(g.into()))
         }),
     ))(i)?;
 
     Ok((i, res))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum AddressModifier {
     Unmodified,
     Indirect,
@@ -150,12 +237,14 @@ pub struct Line {
 }
 
 pub fn asm_line(i: &str) -> IResult<&str, Line> {
-    let (i, (label, (extended, directive), (address_modifier, argument), indexed)) = tuple((
-        opt(label),
-        preceded(space1, pair(map(opt(tag("+")), |e| e.is_some()), directive)),
-        preceded(space1, pair(address_modifier, argument)),
-        map(opt(tag(",X")), |o| o.is_some()),
-    ))(i)?;
+    let (i, (label, (extended, directive), (address_modifier, argument), indexed, _comment)) =
+        tuple((
+            opt(label),
+            preceded(space1, pair(map(opt(tag("+")), |e| e.is_some()), directive)),
+            preceded(space1, pair(address_modifier, argument)),
+            map(opt(tag(",X")), |o| o.is_some()),
+            opt(preceded(space1, preceded(tag("."), many0(anychar)))),
+        ))(i)?;
 
     Ok((
         i,
@@ -168,4 +257,81 @@ pub fn asm_line(i: &str) -> IResult<&str, Line> {
             indexed,
         },
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_line() {
+        let test_line = "FST     LDA    SND";
+
+        assert!(asm_line(test_line).is_ok());
+
+        let test_line = "FST    +LDA    SND";
+
+        assert!(asm_line(test_line).is_ok());
+
+        let test_line = "FST     LDA   #SND";
+
+        assert!(asm_line(test_line).is_ok());
+
+        let test_line = "FST     LDA   @SND";
+
+        assert!(asm_line(test_line).is_ok());
+
+        let test_line = "FST     LDA   SND,X";
+
+        assert!(asm_line(test_line).is_ok());
+
+        let test_line = "        LDA   SND,X";
+
+        assert!(asm_line(test_line).is_ok());
+    }
+
+    #[test]
+    fn parse_program() {
+        let program = r#"
+DISP    START   100
+        LDA    #5
+LOOP    MUL    #2
+        COMP   @COMPLOC
+        JLT     LOOP
+END     J       END
+COMPLOC WORD    MAX . some comment
+SOMTH   BYTE    C'Hello'
+SOMET   BYTE    X'0F0A21C3'
+MAX     WORD    1000
+DODO    EQU     MAX+5*END
+        END     DISP
+        "#;
+
+        let parsed = program
+            .lines()
+            .map(str::trim_end)
+            .filter(|l| !l.is_empty())
+            .map(all_consuming(asm_line))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.1)
+            .collect::<Vec<_>>();
+
+        assert!(parsed[1].address_modifier == AddressModifier::Immediate);
+        assert!(parsed[3].address_modifier == AddressModifier::Indirect);
+        assert!(parsed[4].address_modifier == AddressModifier::Unmodified);
+        assert!(matches!(parsed[6].argument, Argument::Value(Value::Label(_))));
+        assert!(matches!(parsed[7].argument, Argument::Value(Value::Constant(_))));
+        assert!(matches!(parsed[8].argument, Argument::Value(Value::Constant(_))));
+        assert!(matches!(parsed[9].argument, Argument::Value(Value::Constant(_))));
+        assert!(matches!(parsed[10].argument, Argument::Expr(_)));
+    }
+
+    #[test]
+    fn parse_expr() {
+        let expr_str = "ABCD+2*3+DDDDD";
+
+        expr(expr_str).unwrap();
+    }
 }

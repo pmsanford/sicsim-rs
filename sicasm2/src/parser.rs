@@ -3,12 +3,9 @@ use std::str::FromStr;
 use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp};
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take, take_until, take_until1, take_while1},
-    character::{
-        complete::{alpha1, alphanumeric0, anychar, digit1, none_of, space1},
-        is_newline,
-    },
-    combinator::{all_consuming, eof, map, map_parser, map_res, opt, recognize},
+    bytes::complete::{tag, take, take_until1, take_while1},
+    character::complete::{alpha1, alphanumeric0, anychar, digit1, space1},
+    combinator::{all_consuming, map, map_parser, map_res, opt, recognize},
     error::ErrorKind,
     multi::{many0, many1},
     sequence::{delimited, pair, preceded, tuple},
@@ -321,10 +318,22 @@ DODO    EQU     MAX+5*END
         assert!(parsed[1].address_modifier == AddressModifier::Immediate);
         assert!(parsed[3].address_modifier == AddressModifier::Indirect);
         assert!(parsed[4].address_modifier == AddressModifier::Unmodified);
-        assert!(matches!(parsed[6].argument, Argument::Value(Value::Label(_))));
-        assert!(matches!(parsed[7].argument, Argument::Value(Value::Constant(_))));
-        assert!(matches!(parsed[8].argument, Argument::Value(Value::Constant(_))));
-        assert!(matches!(parsed[9].argument, Argument::Value(Value::Constant(_))));
+        assert!(matches!(
+            parsed[6].argument,
+            Argument::Value(Value::Label(_))
+        ));
+        assert!(matches!(
+            parsed[7].argument,
+            Argument::Value(Value::Constant(_))
+        ));
+        assert!(matches!(
+            parsed[8].argument,
+            Argument::Value(Value::Constant(_))
+        ));
+        assert!(matches!(
+            parsed[9].argument,
+            Argument::Value(Value::Constant(_))
+        ));
         assert!(matches!(parsed[10].argument, Argument::Expr(_)));
     }
 

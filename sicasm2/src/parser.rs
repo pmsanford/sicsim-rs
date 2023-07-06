@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::str::FromStr;
 
 use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp};
@@ -224,28 +225,36 @@ pub fn address_modifier(i: &str) -> IResult<&str, AddressModifier> {
 }
 
 #[derive(Debug)]
-pub struct Line {
+pub struct AssemblyLine {
     pub label: Option<Label>,
     pub extended: bool,
     pub directive: Directive,
-    pub argument: Argument,
+    pub argument: Option<Argument>,
     pub address_modifier: AddressModifier,
     pub indexed: bool,
 }
 
-pub fn asm_line(i: &str) -> IResult<&str, Line> {
-    let (i, (label, (extended, directive), (address_modifier, argument), indexed, _comment)) =
-        tuple((
-            opt(label),
-            preceded(space1, pair(map(opt(tag("+")), |e| e.is_some()), directive)),
+pub fn asm_line(i: &str) -> IResult<&str, AssemblyLine> {
+    let (i, (label, (extended, directive), arg_part, _comment)) = tuple((
+        opt(label),
+        preceded(space1, pair(map(opt(tag("+")), |e| e.is_some()), directive)),
+        opt(pair(
             preceded(space1, pair(address_modifier, argument)),
             map(opt(tag(",X")), |o| o.is_some()),
-            opt(preceded(space1, preceded(tag("."), many0(anychar)))),
-        ))(i)?;
+        )),
+        opt(preceded(space1, preceded(tag("."), many0(anychar)))),
+    ))(i)?;
+
+    let ((address_modifier, argument), indexed) =
+        if let Some(((address_modifier, argument), indexed)) = arg_part {
+            ((address_modifier, Some(argument)), indexed)
+        } else {
+            ((AddressModifier::Unmodified, None), false)
+        };
 
     Ok((
         i,
-        Line {
+        AssemblyLine {
             label,
             extended,
             directive,
@@ -254,6 +263,48 @@ pub fn asm_line(i: &str) -> IResult<&str, Line> {
             indexed,
         },
     ))
+}
+
+#[derive(Debug)]
+pub struct Comment(String);
+
+#[derive(Debug)]
+pub enum ProgramLine {
+    Assembly(AssemblyLine),
+    Comment(Comment),
+    Empty,
+}
+
+#[derive(Debug)]
+pub struct ParserLine {
+    pub data: ProgramLine,
+    pub text: String,
+    pub line_no: usize,
+}
+
+fn parse_line(i: &str, line_no: usize) -> Result<ProgramLine> {
+    Ok(if i.is_empty() {
+        ProgramLine::Empty
+    } else if i.trim_start().starts_with(".") {
+        ProgramLine::Comment(Comment(i.into()))
+    } else {
+        ProgramLine::Assembly(asm_line(i).map_err(|e| anyhow!("[{}] {}", line_no, e))?.1)
+    })
+}
+
+pub fn parse_program(program: &str) -> Result<Vec<ParserLine>> {
+    Ok(program
+        .lines()
+        .enumerate()
+        .map(|(num, text)| Ok((num, text.to_string(), parse_line(text, num)?)))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .map(|(line_no, text, data)| ParserLine {
+            data,
+            text,
+            line_no,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -296,6 +347,9 @@ LOOP    MUL    #2
         COMP   @COMPLOC
         JLT     LOOP
 END     J       END
+SUBR    LDA     MAX
+        ADD    #2
+        RSUB
 COMPLOC WORD    MAX . some comment
 SOMTH   BYTE    C'Hello'
 SOMET   BYTE    X'0F0A21C3'
@@ -318,23 +372,24 @@ DODO    EQU     MAX+5*END
         assert!(parsed[1].address_modifier == AddressModifier::Immediate);
         assert!(parsed[3].address_modifier == AddressModifier::Indirect);
         assert!(parsed[4].address_modifier == AddressModifier::Unmodified);
-        assert!(matches!(
-            parsed[6].argument,
-            Argument::Value(Value::Label(_))
-        ));
-        assert!(matches!(
-            parsed[7].argument,
-            Argument::Value(Value::Constant(_))
-        ));
-        assert!(matches!(
-            parsed[8].argument,
-            Argument::Value(Value::Constant(_))
-        ));
+        assert!(matches!(parsed[8].argument, None));
         assert!(matches!(
             parsed[9].argument,
-            Argument::Value(Value::Constant(_))
+            Some(Argument::Value(Value::Label(_)))
         ));
-        assert!(matches!(parsed[10].argument, Argument::Expr(_)));
+        assert!(matches!(
+            parsed[10].argument,
+            Some(Argument::Value(Value::Constant(_)))
+        ));
+        assert!(matches!(
+            parsed[11].argument,
+            Some(Argument::Value(Value::Constant(_)))
+        ));
+        assert!(matches!(
+            parsed[12].argument,
+            Some(Argument::Value(Value::Constant(_)))
+        ));
+        assert!(matches!(parsed[13].argument, Some(Argument::Expr(_))));
     }
 
     #[test]

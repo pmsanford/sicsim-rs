@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.71"
+diesel = { version = "2.1.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+dotenvy = "0.15.7"
 libsic = { version = "0.1.0", path = "../libsic" }
 nom = "7.1.3"
 strum = { version = "0.24.1", features = ["derive"] }

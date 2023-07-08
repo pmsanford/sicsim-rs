@@ -1,7 +1,11 @@
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 
+use crate::parser::{Assembler, Directive, ProgramLine};
+
+mod models;
 pub mod parser;
+mod schema;
 
 pub static MAX_DISP: u16 = 4095; // 0x0F_FF
 pub static MAX_PC: i32 = 2047; // 0x07_FF
@@ -64,5 +68,24 @@ struct ParsedLine {}
 
 fn pass_one(program: &str) -> Result<Vec<ParsedLine>> {
     let parsed = parser::parse_program(program)?;
+    if parsed.len() < 3 {
+        bail!("expected at least a start, end, and one directive");
+    }
+    let mut lines = parsed.iter();
+    let Some(mut start_line) = lines.next() else { bail!("Expected at least one directive"); };
+
+    let start = loop {
+        let ProgramLine::Assembly(ref start) = start_line.data else {
+            start_line = lines.next().ok_or_else(|| anyhow!("Couldn't find first program line"))?;
+            continue;
+        };
+
+        break start;
+    };
+
+    if !matches!(start.directive, Directive::Command(Assembler::START)) {
+        bail!("Expected first directive to be START");
+    }
+
     todo!()
 }

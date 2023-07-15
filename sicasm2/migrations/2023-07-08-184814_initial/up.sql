@@ -31,15 +31,16 @@ CREATE TABLE labels (
   PRIMARY KEY (block_name, label_name)
 );
 
-CREATE TABLE line (
+CREATE TABLE lines (
   block_name text not null,
   line_no integer primary key not null,
   directive text not null,
-  argument_type text not null, -- "None", "String", "Literal"
-  argument_string text, -- NULL for "None"
+  argument text,
+  address_modifier text not null,
   extended integer not null default FALSE,
+  indexed integer not null default FALSE,
   size integer not null,
-  offest integer not null,
+  offset integer not null,
   text text not null,
   FOREIGN KEY(block_name) REFERENCES program_blocks(block_name)
 );

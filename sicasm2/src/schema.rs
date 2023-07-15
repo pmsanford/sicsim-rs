@@ -10,15 +10,16 @@ diesel::table! {
 }
 
 diesel::table! {
-    line (line_no) {
+    lines (line_no) {
         block_name -> Text,
         line_no -> Integer,
         directive -> Text,
-        argument_type -> Text,
-        argument_string -> Nullable<Text>,
+        argument -> Nullable<Text>,
+        address_modifier -> Text,
         extended -> Integer,
+        indexed -> Integer,
         size -> Integer,
-        offest -> Integer,
+        offset -> Integer,
         text -> Text,
     }
 }
@@ -48,9 +49,10 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(labels -> lines (line_no));
 diesel::joinable!(labels -> program_blocks (block_name));
-diesel::joinable!(line -> program_blocks (block_name));
+diesel::joinable!(lines -> program_blocks (block_name));
 diesel::joinable!(literals -> program_blocks (block_name));
 diesel::joinable!(ltorgs -> program_blocks (block_name));
 
-diesel::allow_tables_to_appear_in_same_query!(labels, line, literals, ltorgs, program_blocks,);
+diesel::allow_tables_to_appear_in_same_query!(labels, lines, literals, ltorgs, program_blocks,);

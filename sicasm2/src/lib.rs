@@ -3,9 +3,10 @@ use std::collections::HashMap;
 
 use crate::parser::{Assembler, Directive, ProgramLine};
 
-mod models;
+pub mod data;
+pub mod models;
 pub mod parser;
-mod schema;
+pub mod schema;
 
 pub static MAX_DISP: u16 = 4095; // 0x0F_FF
 pub static MAX_PC: i32 = 2047; // 0x07_FF

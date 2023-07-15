@@ -1,7 +1,10 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
+use num_traits::{FromPrimitive, ToPrimitive};
+use serde::{de::Visitor, Deserialize, Serialize};
 use std::str::FromStr;
+use strum_macros::EnumVariantNames;
 
-use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp};
+use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp, SVC};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until1, take_while1},
@@ -12,7 +15,7 @@ use nom::{
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
-use strum::EnumString;
+use strum::{EnumString, VariantNames};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -21,7 +24,7 @@ pub enum ParseError {
     InvalidOpcode(String),
 }
 
-#[derive(Debug, EnumString, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, EnumString, Eq, PartialEq)]
 pub enum Assembler {
     START,
     BASE,
@@ -44,7 +47,7 @@ fn command(i: &str) -> IResult<&str, Assembler> {
     Ok((i, cmd))
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Directive {
     Op(Op),
     Command(Assembler),
@@ -56,7 +59,7 @@ fn directive(i: &str) -> IResult<&str, Directive> {
     Ok((i, dir))
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumVariantNames)]
 pub enum Op {
     OneByte(OneByteOp),
     OneReg(OneRegOp),
@@ -64,6 +67,121 @@ pub enum Op {
     Shift(ShiftOp),
     Svc,
     Variable(VariableOp),
+}
+
+impl Serialize for Op {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::Error;
+
+        let val = match self {
+            Op::OneByte(o) => o.to_u8(),
+            Op::OneReg(o) => o.to_u8(),
+            Op::TwoReg(o) => o.to_u8(),
+            Op::Shift(o) => o.to_u8(),
+            Op::Svc => Some(SVC),
+            Op::Variable(o) => o.to_u8(),
+        };
+
+        let Some(val) = val else { return Err(Error::custom(format!("couldn't convert op {:?} to u8", self))); };
+
+        serializer.serialize_u8(val)
+    }
+}
+
+struct OpVisitor;
+
+impl<'de> Visitor<'de> for OpVisitor {
+    type Value = Op;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a u8 that matches one of the opcodes")
+    }
+
+    fn visit_i32<E>(self, v: i32) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_i8<E>(self, v: i8) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_i16<E>(self, v: i16) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_u16<E>(self, v: u16) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_u32<E>(self, v: u32) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        self.visit_u8(v as u8)
+    }
+
+    fn visit_u8<E>(self, v: u8) -> std::result::Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if let Some(one) = OneByteOp::from_u8(v) {
+            return Ok(Op::OneByte(one));
+        }
+        if let Some(one) = OneRegOp::from_u8(v) {
+            return Ok(Op::OneReg(one));
+        }
+        if let Some(one) = TwoRegOp::from_u8(v) {
+            return Ok(Op::TwoReg(one));
+        }
+        if let Some(one) = ShiftOp::from_u8(v) {
+            return Ok(Op::Shift(one));
+        }
+        if let Some(one) = VariableOp::from_u8(v) {
+            return Ok(Op::Variable(one));
+        }
+        if v == SVC {
+            return Ok(Op::Svc);
+        }
+        return Err(serde::de::Error::custom("couldn't convert {v} to op"));
+    }
+}
+
+impl<'de> Deserialize<'de> for Op {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer.deserialize_u8(OpVisitor)
+    }
 }
 
 impl Op {
@@ -86,7 +204,7 @@ impl Op {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum ExprOp {
     Add,
     Subtract,
@@ -103,7 +221,7 @@ pub fn expr_op(i: &str) -> IResult<&str, ExprOp> {
     ))(i)
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum ExprTarget {
     Argument(Value),
     Expr(Box<Expr>),
@@ -116,7 +234,7 @@ pub fn expr_target(i: &str) -> IResult<&str, ExprTarget> {
     ))(i)
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Expr {
     pub value: Value,
     pub op: ExprOp,
@@ -131,16 +249,16 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
     Ok((i, Expr { value, op, target }))
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub struct Label(String);
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum Value {
     Constant(Vec<u8>),
     Label(Label),
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum Argument {
     Value(Value),
     Expr(Expr),
@@ -208,7 +326,7 @@ pub fn value(i: &str) -> IResult<&str, Value> {
     Ok((i, res))
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
 pub enum AddressModifier {
     Unmodified,
     Indirect,

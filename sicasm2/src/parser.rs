@@ -24,7 +24,7 @@ pub enum ParseError {
     InvalidOpcode(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, EnumString, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, EnumString, Eq, PartialEq, Clone, Copy)]
 pub enum Assembler {
     START,
     BASE,
@@ -47,7 +47,7 @@ fn command(i: &str) -> IResult<&str, Assembler> {
     Ok((i, cmd))
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Directive {
     Op(Op),
     Command(Assembler),
@@ -59,7 +59,7 @@ fn directive(i: &str) -> IResult<&str, Directive> {
     Ok((i, dir))
 }
 
-#[derive(Debug, EnumVariantNames)]
+#[derive(Debug, EnumVariantNames, PartialEq, Eq, Clone, Copy)]
 pub enum Op {
     OneByte(OneByteOp),
     OneReg(OneRegOp),
@@ -204,7 +204,7 @@ impl Op {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum ExprOp {
     Add,
     Subtract,
@@ -221,7 +221,7 @@ pub fn expr_op(i: &str) -> IResult<&str, ExprOp> {
     ))(i)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ExprTarget {
     Argument(Value),
     Expr(Box<Expr>),
@@ -234,7 +234,7 @@ pub fn expr_target(i: &str) -> IResult<&str, ExprTarget> {
     ))(i)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Expr {
     pub value: Value,
     pub op: ExprOp,
@@ -249,23 +249,25 @@ pub fn expr(i: &str) -> IResult<&str, Expr> {
     Ok((i, Expr { value, op, target }))
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
-pub struct Label(String);
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+pub struct Label(pub String);
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum Value {
-    Constant(Vec<u8>),
-    Label(Label),
+    Bytes(Vec<u8>),
+    Chars(Vec<u8>),
+    Number(i32),
+    String(Label),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Argument {
     Value(Value),
     Expr(Expr),
 }
 
 pub fn argument(i: &str) -> IResult<&str, Argument> {
-    // Note that order is important here - the firs tone to succeed
+    // Note that order is important here - the first one to succeed
     // is returned, and label will match an expression that starts with
     // a label.
     alt((map(expr, Argument::Expr), map(value, Argument::Value)))(i)
@@ -297,36 +299,24 @@ pub fn value(i: &str) -> IResult<&str, Value> {
     // Note that order is important here - label will match a constant
     // that starts with X or C
     let (i, res): (&str, Value) = alt((
-        map(
-            map_parser(aposdelimited(tag("X")), hex_bytes),
-            Value::Constant,
-        ),
+        map(map_parser(aposdelimited(tag("X")), hex_bytes), Value::Bytes),
         map(
             map_parser(aposdelimited(tag("C")), char_bytes),
-            Value::Constant,
+            Value::Chars,
         ),
         map_res(digit1, |g: &str| {
             let number = g.parse::<i32>()?;
-            let mut number = number.to_be_bytes();
-            let neg = number[0] & 0x80 > 0;
-            if neg {
-                number[1] |= 0x80;
-            } else {
-                number[1] &= 0x7F;
-            }
-            Ok::<Value, <i32 as FromStr>::Err>(Value::Constant(vec![
-                number[1], number[2], number[3],
-            ]))
+            Ok::<Value, <i32 as FromStr>::Err>(Value::Number(number))
         }),
         map(recognize(pair(alpha1, alphanumeric0)), |g: &str| {
-            Value::Label(Label(g.into()))
+            Value::String(Label(g.into()))
         }),
     ))(i)?;
 
     Ok((i, res))
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
 pub enum AddressModifier {
     Unmodified,
     Indirect,
@@ -350,6 +340,49 @@ pub struct AssemblyLine {
     pub argument: Option<Argument>,
     pub address_modifier: AddressModifier,
     pub indexed: bool,
+}
+
+impl AssemblyLine {
+    pub fn size(&self) -> Result<usize> {
+        Ok(match &self.directive {
+            Directive::Op(op) => match op {
+                Op::OneByte(_) => 1,
+                Op::OneReg(_) | Op::TwoReg(_) | Op::Shift(_) | Op::Svc => 2,
+                Op::Variable(_) => {
+                    if self.extended {
+                        4
+                    } else {
+                        3
+                    }
+                }
+            },
+            Directive::Command(cmd) => match cmd {
+                Assembler::START
+                | Assembler::BASE
+                | Assembler::ORG
+                | Assembler::EQU
+                | Assembler::USE
+                | Assembler::END => 0,
+                Assembler::WORD => 3,
+                Assembler::RESW => match &self.argument {
+                    Some(Argument::Value(Value::Number(n))) => *n as usize * 3,
+                    Some(Argument::Expr(_e)) => todo!(),
+                    _ => bail!("invalid resw argument"),
+                },
+                Assembler::RESB => match &self.argument {
+                    Some(Argument::Value(Value::Number(n))) => *n as usize,
+                    Some(Argument::Expr(_e)) => todo!(),
+                    _ => bail!("invalid resb argument"),
+                },
+                Assembler::BYTE => match &self.argument {
+                    Some(Argument::Value(Value::Bytes(v) | Value::Chars(v))) => v.len(),
+                    Some(Argument::Value(Value::Number(_))) => 3,
+                    _ => bail!("invalid byte argument"),
+                },
+                Assembler::LTORG => unimplemented!(),
+            },
+        })
+    }
 }
 
 pub fn asm_line(i: &str) -> IResult<&str, AssemblyLine> {
@@ -493,19 +526,19 @@ DODO    EQU     MAX+5*END
         assert!(matches!(parsed[8].argument, None));
         assert!(matches!(
             parsed[9].argument,
-            Some(Argument::Value(Value::Label(_)))
+            Some(Argument::Value(Value::String(_)))
         ));
         assert!(matches!(
             parsed[10].argument,
-            Some(Argument::Value(Value::Constant(_)))
+            Some(Argument::Value(Value::Chars(_)))
         ));
         assert!(matches!(
             parsed[11].argument,
-            Some(Argument::Value(Value::Constant(_)))
+            Some(Argument::Value(Value::Bytes(_)))
         ));
         assert!(matches!(
             parsed[12].argument,
-            Some(Argument::Value(Value::Constant(_)))
+            Some(Argument::Value(Value::Number(_)))
         ));
         assert!(matches!(parsed[13].argument, Some(Argument::Expr(_))));
     }

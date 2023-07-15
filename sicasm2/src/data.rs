@@ -1,3 +1,4 @@
+use anyhow::Context;
 use anyhow::{anyhow, Result};
 use diesel::sql_query;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
@@ -28,16 +29,48 @@ impl AsmData {
 
     pub fn add_program_block(&mut self, name: String) -> Result<()> {
         diesel::insert_into(program_blocks::table)
-            .values(&ProgramBlock::new(name))
-            .execute(&mut self.conn)?;
+            .values(&ProgramBlock::new(name.clone()))
+            .execute(&mut self.conn)
+            .with_context(|| format!("inserting program block {name}"))?;
 
         Ok(())
     }
 
-    pub fn get_program_block(&mut self, name: &str) -> Result<ProgramBlock> {
+    pub fn get_program_block(&mut self, name: &str) -> Result<Option<ProgramBlock>> {
         use crate::schema::program_blocks::dsl::program_blocks;
-        let block = program_blocks.find(name).get_result(&mut self.conn)?;
+        let block = program_blocks
+            .find(name)
+            .get_result(&mut self.conn)
+            .optional()?;
 
         Ok(block)
+    }
+
+    pub fn set_current_location(&mut self, block: &ProgramBlock) -> Result<()> {
+        use crate::schema::program_blocks::dsl::current_offset;
+        diesel::update(block)
+            .set(current_offset.eq(block.current_offset))
+            .execute(&mut self.conn)
+            .with_context(|| format!("updating program block {}", block.block_name))?;
+
+        Ok(())
+    }
+
+    pub fn add_label(&mut self, label: &Label) -> Result<()> {
+        diesel::insert_into(labels::table)
+            .values(label)
+            .execute(&mut self.conn)
+            .with_context(|| format!("inserting label {}", label.label_name))?;
+
+        Ok(())
+    }
+
+    pub fn add_line(&mut self, line: &Line) -> Result<()> {
+        diesel::insert_into(lines::table)
+            .values(line)
+            .execute(&mut self.conn)
+            .with_context(|| format!("inserting line {}", line.line_no))?;
+
+        Ok(())
     }
 }

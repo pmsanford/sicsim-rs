@@ -16,14 +16,25 @@ pub struct AsmData {
 }
 
 impl AsmData {
-    pub fn from_env() -> Result<Self> {
+    pub fn new_from_env() -> Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| ":memory:".to_owned());
         let mut conn = SqliteConnection::establish(&database_url)?;
         sql_query("PRAGMA FOREIGN_KEYS = ON;").execute(&mut conn)?;
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow!("Unable to run migrations: {e}"))?;
 
-        Ok(Self { conn })
+        Ok(AsmData::with_connection(conn))
+    }
+
+    pub fn from_env() -> Result<Self> {
+        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| ":memory:".to_owned());
+        let conn = SqliteConnection::establish(&database_url)?;
+
+        Ok(AsmData::with_connection(conn))
+    }
+
+    pub fn with_connection(conn: SqliteConnection) -> Self {
+        Self { conn }
     }
 
     pub fn add_program_block(&mut self, name: String) -> Result<()> {
@@ -125,5 +136,12 @@ impl AsmData {
         }
 
         Ok(())
+    }
+
+    pub fn get_lines(&mut self) -> Result<Vec<Line>> {
+        use crate::schema::lines::dsl::{line_no, lines};
+        let line_list = lines.order(line_no.asc()).get_results(&mut self.conn)?;
+
+        Ok(line_list)
     }
 }

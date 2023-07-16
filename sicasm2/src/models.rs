@@ -127,7 +127,7 @@ pub struct Literal {
     pub value: Vec<u8>,
 }
 
-#[derive(Queryable, Debug, Identifiable, Associations, Insertable)]
+#[derive(Queryable, Debug, Identifiable, Associations, Insertable, Selectable)]
 #[diesel(primary_key(block_name, offset))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]

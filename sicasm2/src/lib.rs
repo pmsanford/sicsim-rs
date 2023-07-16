@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Result};
-use models::{Line, Literal};
+use models::{Line, Literal, ProgramBlock};
 use parser::Expr;
 
 use crate::{
@@ -38,9 +38,38 @@ pub fn pass_one(program: &str) -> Result<()> {
         bail!("Expected first directive to be START");
     }
 
-    let mut data = AsmData::from_env()?;
+    let mut data = AsmData::new_from_env()?;
 
     data.add_program_block("".into())?;
+
+    let line = Line {
+        block_name: "".into(),
+        line_no: start_line.line_no,
+        directive: start.directive,
+        argument: start.argument.clone(),
+        address_modifier: start.address_modifier,
+        extended: start.extended,
+        indexed: start.indexed,
+        size: start.size()?,
+        offset: 0,
+        text: start_line.text.clone(),
+    };
+
+    data.add_line(&line)?;
+
+    let label = Label {
+        block_name: "".into(),
+        line_no: start_line.line_no as i32,
+        label_name: start
+            .label
+            .as_ref()
+            .ok_or_else(|| anyhow!("program has no name"))?
+            .0
+            .clone(),
+        offset: 0,
+    };
+
+    data.add_label(&label)?;
 
     let mut current_block = data.get_program_block("")?.expect("just added this block");
 
@@ -62,29 +91,7 @@ pub fn pass_one(program: &str) -> Result<()> {
         let offset = current_block.current_offset as usize;
 
         let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
-            let mut ltorg_offset = offset as i32;
-            let mut bytes = Vec::new();
-
-            let mut literals = data.get_unaddressed_literals(&current_block)?;
-
-            for literal in literals.iter_mut() {
-                literal.offset = Some(ltorg_offset);
-                bytes.append(&mut literal.value.clone());
-                ltorg_offset += literal.value.len() as i32;
-            }
-
-            let size = bytes.len();
-
-            let ltorg = Ltorg {
-                block_name: current_block.block_name.clone(),
-                offset: offset as i32,
-                data: bytes,
-            };
-
-            data.add_ltorg(&ltorg)?;
-            data.update_literals(&literals)?;
-
-            size
+            create_ltorg(&current_block, &mut data)?
         } else {
             program_line.size()?
         };
@@ -114,12 +121,10 @@ pub fn pass_one(program: &str) -> Result<()> {
                     .argument
                     .as_ref()
                     .ok_or_else(|| anyhow!("expected argument for equ"))?;
-                let offset = match arg {
-                    Argument::Value(v) => value_for_expr(&v, &mut data)?,
-                    Argument::Expr(e) => eval_expr(&e, &mut data)?,
-                };
-
-                offset
+                match arg {
+                    Argument::Value(v) => value_for_expr(v, &mut data)?,
+                    Argument::Expr(e) => eval_expr(e, &mut data)?,
+                }
             } else {
                 offset as i32
             };
@@ -147,7 +152,39 @@ pub fn pass_one(program: &str) -> Result<()> {
         }
     }
 
+    create_ltorg(&current_block, &mut data)?;
+
     Ok(())
+}
+
+fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usize> {
+    let mut ltorg_offset = current_block.current_offset;
+    let mut bytes = Vec::new();
+
+    let mut literals = data.get_unaddressed_literals(current_block)?;
+
+    if literals.is_empty() {
+        return Ok(0);
+    }
+
+    for literal in literals.iter_mut() {
+        literal.offset = Some(ltorg_offset);
+        bytes.append(&mut literal.value.clone());
+        ltorg_offset += literal.value.len() as i32;
+    }
+
+    let size = bytes.len();
+
+    let ltorg = Ltorg {
+        block_name: current_block.block_name.clone(),
+        offset: current_block.current_offset,
+        data: bytes,
+    };
+
+    data.add_ltorg(&ltorg)?;
+    data.update_literals(&literals)?;
+
+    Ok(size)
 }
 
 fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
@@ -168,8 +205,8 @@ fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
     let lhs = value_for_expr(&expr.value, data)?;
 
     let rhs = match &expr.target {
-        parser::ExprTarget::Argument(v) => value_for_expr(&v, data)?,
-        parser::ExprTarget::Expr(e) => eval_expr(&e, data)?,
+        parser::ExprTarget::Argument(v) => value_for_expr(v, data)?,
+        parser::ExprTarget::Expr(e) => eval_expr(e, data)?,
     };
 
     let result = match expr.op {
@@ -180,4 +217,73 @@ fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
     };
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::models::*;
+    use crate::schema::*;
+    use diesel::prelude::*;
+    use std::env;
+    use temp_dir::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn create_lines() -> Result<()> {
+        // Comments after are offsets of the line
+        let program = r#"
+TST     START   100     . 0
+LBL1    ADD     #5      . 0
+LBL2    LDA     X'0F'   . 3
+        J       LBL1    . 6
+        RESB    2       . 9
+        RESW    2       . 11
+        END     TST     . 17
+        "#
+        .trim();
+
+        let dir = TempDir::new()?;
+        let db = dir.child("test.db");
+        let db_path = db.to_str().unwrap();
+
+        env::set_var("DATABASE_URL", db_path);
+
+        pass_one(program)?;
+
+        let mut data = AsmData::from_env()?;
+
+        let lines = data.get_lines()?;
+
+        assert_eq!(lines.len(), 7);
+
+        // Line offsets
+        assert_eq!(lines[0].offset, 0);
+        assert_eq!(lines[1].offset, 0);
+        assert_eq!(lines[2].offset, 3);
+        assert_eq!(lines[3].offset, 6);
+        assert_eq!(lines[4].offset, 9);
+        assert_eq!(lines[5].offset, 11);
+        assert_eq!(lines[6].offset, 17);
+
+        // Labels
+        let start_label = data.get_label("TST")?.expect("start label");
+        assert_eq!(start_label.offset, 0);
+
+        let one = data.get_label("LBL1")?.expect("lbl1");
+        assert_eq!(one.offset, 0);
+
+        let two = data.get_label("LBL2")?.expect("lbl2");
+        assert_eq!(two.offset, 3);
+
+        let ltorg_list: Vec<Ltorg> = ltorgs::dsl::ltorgs.get_results(&mut data.conn)?;
+
+        assert_eq!(ltorg_list.len(), 1);
+        let ltorg = ltorg_list.into_iter().next().unwrap();
+
+        assert_eq!(ltorg.offset, 17);
+        assert_eq!(ltorg.data, vec![0x0F]);
+
+        Ok(())
+    }
 }

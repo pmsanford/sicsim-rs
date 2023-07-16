@@ -22,56 +22,12 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
     if parsed.len() < 3 {
         bail!("expected at least a start, end, and one directive");
     }
-    let mut lines = parsed.iter();
-    let Some(mut start_line) = lines.next() else { bail!("Expected at least one directive"); };
-
-    let start = loop {
-        let ProgramLine::Assembly(ref start) = start_line.data else {
-            start_line = lines.next().ok_or_else(|| anyhow!("Couldn't find first program line"))?;
-            continue;
-        };
-
-        break start;
-    };
-
-    if !matches!(start.directive, Directive::Command(Assembler::START)) {
-        bail!("Expected first directive to be START");
-    }
 
     let mut data = AsmData::new_from_env()?;
 
     let mut current_block = data.add_program_block("".into())?;
 
-    let line = Line {
-        block_name: current_block.block_name.clone(),
-        line_no: start_line.line_no,
-        directive: start.directive,
-        argument: start.argument.clone(),
-        address_modifier: start.address_modifier,
-        extended: start.extended,
-        indexed: start.indexed,
-        size: start.size()?,
-        offset: 0,
-        text: start_line.text.clone(),
-    };
-
-    data.add_line(&line)?;
-
-    let label = Label {
-        block_name: current_block.block_name.clone(),
-        line_no: start_line.line_no as i32,
-        label_name: start
-            .label
-            .as_ref()
-            .ok_or_else(|| anyhow!("program has no name"))?
-            .0
-            .clone(),
-        offset: 0,
-    };
-
-    data.add_label(&label)?;
-
-    for parsed_line in lines {
+    for parsed_line in parsed.iter() {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
 
         current_block = handle_use(program_line, current_block, &mut data)?;

@@ -15,7 +15,7 @@ use nom::{
     sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
-use strum::{EnumString, VariantNames};
+use strum::EnumString;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -171,7 +171,7 @@ impl<'de> Visitor<'de> for OpVisitor {
         if v == SVC {
             return Ok(Op::Svc);
         }
-        return Err(serde::de::Error::custom("couldn't convert {v} to op"));
+        Err(serde::de::Error::custom("couldn't convert {v} to op"))
     }
 }
 
@@ -436,7 +436,7 @@ pub struct ParserLine {
 fn parse_line(i: &str, line_no: usize) -> Result<ProgramLine> {
     Ok(if i.is_empty() {
         ProgramLine::Empty
-    } else if i.trim_start().starts_with(".") {
+    } else if i.trim_start().starts_with('.') {
         ProgramLine::Comment(Comment(i.into()))
     } else {
         ProgramLine::Assembly(asm_line(i).map_err(|e| anyhow!("[{}] {}", line_no, e))?.1)

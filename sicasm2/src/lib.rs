@@ -1,11 +1,10 @@
-use anyhow::{anyhow, bail, Context, Result};
-use models::Line;
-use std::collections::HashMap;
+use anyhow::{anyhow, bail, Result};
+use models::{Line, Literal};
 
 use crate::{
     data::AsmData,
-    models::Label,
-    parser::{Argument, Assembler, Directive, ParserLine, ProgramLine, Value},
+    models::{Label, Ltorg},
+    parser::{Argument, Assembler, Directive, ProgramLine, Value},
 };
 
 pub mod data;
@@ -59,12 +58,35 @@ pub fn pass_one(program: &str) -> Result<()> {
                 .ok_or_else(|| anyhow!("couldn't find program block {}", block_name.0))?;
         }
 
+        let offset = current_block.current_offset as usize;
+
         let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
-            todo!()
+            let mut ltorg_offset = offset as i32;
+            let mut bytes = Vec::new();
+
+            let mut literals = data.get_unaddressed_literals(&current_block)?;
+
+            for literal in literals.iter_mut() {
+                literal.offset = Some(ltorg_offset);
+                bytes.append(&mut literal.value.clone());
+                ltorg_offset += literal.value.len() as i32;
+            }
+
+            let size = bytes.len();
+
+            let ltorg = Ltorg {
+                block_name: current_block.block_name.clone(),
+                offset: offset as i32,
+                data: bytes,
+            };
+
+            data.add_ltorg(&ltorg)?;
+            data.update_literals(&literals)?;
+
+            size
         } else {
             program_line.size()?
         };
-        let offset = current_block.current_offset as usize;
 
         current_block.current_offset += size as i32;
 
@@ -98,6 +120,18 @@ pub fn pass_one(program: &str) -> Result<()> {
 
                 data.add_label(&label)?;
             }
+        }
+
+        if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) =
+            program_line.argument
+        {
+            let literal = Literal {
+                block_name: current_block.block_name.clone(),
+                offset: None,
+                value: v.clone(),
+            };
+
+            data.add_literal(&literal)?;
         }
     }
 

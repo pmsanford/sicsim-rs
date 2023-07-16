@@ -1,12 +1,5 @@
 use anyhow::Result;
-use diesel::{QueryDsl, RunQueryDsl};
-use libsic::xe::op::VariableOp;
-use sicasm2::{
-    data::AsmData,
-    models::Line,
-    parser::{Argument, Directive, Op::Variable},
-    pass_one,
-};
+use sicasm2::pass_one;
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;

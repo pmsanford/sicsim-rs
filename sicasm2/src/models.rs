@@ -95,7 +95,7 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
             "argument: {:?}",
             row.3
                 .as_ref()
-                .map(|arg| serde_json::from_str::<Argument>(&arg))
+                .map(|arg| serde_json::from_str::<Argument>(arg))
                 .transpose()?
         );
         println!(
@@ -117,8 +117,8 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
     }
 }
 
-#[derive(Queryable, Debug, Identifiable, Associations)]
-#[diesel(primary_key(block_name, offset))]
+#[derive(Queryable, Debug, Identifiable, Associations, Insertable, Selectable)]
+#[diesel(primary_key(block_name, value))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
 pub struct Literal {
@@ -127,7 +127,7 @@ pub struct Literal {
     pub value: Vec<u8>,
 }
 
-#[derive(Queryable, Debug, Identifiable, Associations)]
+#[derive(Queryable, Debug, Identifiable, Associations, Insertable)]
 #[diesel(primary_key(block_name, offset))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]

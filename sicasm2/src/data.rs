@@ -1,5 +1,6 @@
 use anyhow::Context;
 use anyhow::{anyhow, Result};
+
 use diesel::sql_query;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use std::env;
@@ -19,8 +20,6 @@ impl AsmData {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| ":memory:".to_owned());
         let mut conn = SqliteConnection::establish(&database_url)?;
         sql_query("PRAGMA FOREIGN_KEYS = ON;").execute(&mut conn)?;
-        conn.revert_all_migrations(MIGRATIONS)
-            .map_err(|e| anyhow!("Unable to clean database: {e}"))?;
         conn.run_pending_migrations(MIGRATIONS)
             .map_err(|e| anyhow!("Unable to run migrations: {e}"))?;
 
@@ -70,6 +69,53 @@ impl AsmData {
             .values(line)
             .execute(&mut self.conn)
             .with_context(|| format!("inserting line {}", line.line_no))?;
+
+        Ok(())
+    }
+
+    pub fn add_literal(&mut self, literal: &Literal) -> Result<()> {
+        diesel::insert_into(literals::table)
+            .values(literal)
+            .execute(&mut self.conn)
+            .with_context(|| format!("inserting literal {:#?}", literal.value))?;
+
+        Ok(())
+    }
+
+    pub fn get_unaddressed_literals(
+        &mut self,
+        program_block: &ProgramBlock,
+    ) -> Result<Vec<Literal>> {
+        let literals = Literal::belonging_to(&program_block)
+            .select(Literal::as_select())
+            .filter(literals::offset.is_null())
+            .load(&mut self.conn)?;
+
+        Ok(literals)
+    }
+
+    pub fn add_ltorg(&mut self, ltorg: &Ltorg) -> Result<()> {
+        diesel::insert_into(ltorgs::table)
+            .values(ltorg)
+            .execute(&mut self.conn)
+            .with_context(|| format!("inserting ltorg {}", ltorg.offset))?;
+
+        Ok(())
+    }
+
+    pub fn update_literals(&mut self, literals: &Vec<Literal>) -> Result<()> {
+        use crate::schema::literals::offset;
+        for literal in literals {
+            diesel::update(literal)
+                .set(offset.eq(literal.offset))
+                .execute(&mut self.conn)
+                .with_context(|| {
+                    format!(
+                        "updating literal {:?} in block {}",
+                        literal.value, literal.block_name
+                    )
+                })?;
+        }
 
         Ok(())
     }

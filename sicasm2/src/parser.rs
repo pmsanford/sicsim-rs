@@ -543,6 +543,42 @@ DODO    EQU     MAX+5*END
         assert!(matches!(parsed[13].argument, Some(Argument::Expr(_))));
     }
 
+    #[ignore = "TODO: Fix exprs with space after"]
+    #[test]
+    fn parse_line_expr_with_comment() {
+        let program = r#"
+TST     START   100
+LB      EQU     LB1+5 . something
+        END     TST
+        "#
+        .trim();
+
+        let parsed = program
+            .lines()
+            .map(str::trim_end)
+            .filter(|l| !l.is_empty())
+            .map(all_consuming(asm_line))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .map(|x| x.1)
+            .collect::<Vec<_>>();
+
+        let line = &parsed[1];
+        let arg = line.argument.as_ref().unwrap();
+        assert!(matches!(arg, Argument::Expr(_)));
+    }
+
+    #[test]
+    fn parse_simple_expr_label() {
+        let expr_str = "LB1+5";
+
+        let (s, res) = argument(expr_str).unwrap();
+
+        assert!(matches!(res, Argument::Expr(_)));
+        assert!(s.is_empty());
+    }
+
     #[test]
     fn parse_expr() {
         let expr_str = "ABCD+2*3+DDDDD";

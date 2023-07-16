@@ -121,6 +121,7 @@ pub fn pass_one(program: &str) -> Result<()> {
                     .argument
                     .as_ref()
                     .ok_or_else(|| anyhow!("expected argument for equ"))?;
+                println!("Evaluating arg {arg:#?}");
                 match arg {
                     Argument::Value(v) => value_for_expr(v, &mut data)?,
                     Argument::Expr(e) => eval_expr(e, &mut data)?,
@@ -198,6 +199,8 @@ fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
         }
     };
 
+    println!("Value for {:#?}: {v}", value);
+
     Ok(v)
 }
 
@@ -208,6 +211,9 @@ fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
         parser::ExprTarget::Argument(v) => value_for_expr(v, data)?,
         parser::ExprTarget::Expr(e) => eval_expr(e, data)?,
     };
+
+    println!("Eval: {:#?}", expr);
+    println!("\tlhs: {lhs} rhs: {rhs} op: {:?}", expr.op);
 
     let result = match expr.op {
         parser::ExprOp::Add => lhs + rhs,
@@ -229,6 +235,18 @@ mod tests {
 
     use super::*;
 
+    fn run_pass_one(program: &str) -> Result<AsmData> {
+        let dir = TempDir::new()?;
+        let db = dir.child("test.db");
+        let db_path = db.to_str().unwrap();
+
+        env::set_var("DATABASE_URL", db_path);
+
+        pass_one(program)?;
+
+        AsmData::from_env()
+    }
+
     #[test]
     fn create_lines() -> Result<()> {
         // Comments after are offsets of the line
@@ -243,15 +261,7 @@ LBL2    LDA     X'0F'   . 3
         "#
         .trim();
 
-        let dir = TempDir::new()?;
-        let db = dir.child("test.db");
-        let db_path = db.to_str().unwrap();
-
-        env::set_var("DATABASE_URL", db_path);
-
-        pass_one(program)?;
-
-        let mut data = AsmData::from_env()?;
+        let mut data = run_pass_one(program)?;
 
         let lines = data.get_lines()?;
 
@@ -283,6 +293,31 @@ LBL2    LDA     X'0F'   . 3
 
         assert_eq!(ltorg.offset, 17);
         assert_eq!(ltorg.data, vec![0x0F]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_equ() -> Result<()> {
+        let program = r#"
+TST     START   100
+LB1     EQU     5
+LB2     EQU     LB1+5
+LB3     EQU     LB2*LB1
+        END     TST
+        "#
+        .trim();
+
+        let mut data = run_pass_one(program)?;
+
+        let lb1 = data.get_label("LB1")?.expect("lb1");
+        assert_eq!(lb1.offset, 5);
+
+        let lb2 = data.get_label("LB2")?.expect("lb2");
+        assert_eq!(lb2.offset, 10);
+
+        let lb3 = data.get_label("LB3")?.expect("lb3");
+        assert_eq!(lb3.offset, 50);
 
         Ok(())
     }

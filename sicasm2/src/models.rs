@@ -123,8 +123,6 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
 #[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
 pub struct Literal {
     pub block_name: String,
-    pub arg_type: String,
-    pub arg_string: String,
     pub offset: Option<i32>,
     pub value: Vec<u8>,
 }

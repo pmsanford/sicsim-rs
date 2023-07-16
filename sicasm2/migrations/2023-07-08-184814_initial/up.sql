@@ -5,12 +5,10 @@ CREATE TABLE program_blocks (
 
 CREATE TABLE literals (
   block_name text not null,
-  arg_type text not null, -- "String", "Literal"
-  arg_string text not null,
   offset integer,
   value blob not null,
   FOREIGN KEY(block_name) REFERENCES program_blocks(block_name),
-  PRIMARY KEY (block_name, offset)
+  PRIMARY KEY (block_name, value)
 );
 
 CREATE TABLE ltorgs (

@@ -25,10 +25,8 @@ diesel::table! {
 }
 
 diesel::table! {
-    literals (block_name, offset) {
+    literals (block_name, value) {
         block_name -> Text,
-        arg_type -> Text,
-        arg_string -> Text,
         offset -> Nullable<Integer>,
         value -> Binary,
     }

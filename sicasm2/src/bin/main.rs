@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sicasm2::pass_one;
+use sicasm2::pass_one::pass_one;
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;

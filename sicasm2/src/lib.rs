@@ -77,15 +77,21 @@ pub fn pass_one(program: &str) -> Result<()> {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
 
         if program_line.directive == Directive::Command(Assembler::USE) {
-            let Some(Argument::Value(Value::String(ref block_name))) = program_line.argument else { bail!("invalid use line"); };
+            let block_name = if let Some(Argument::Value(Value::String(ref block_name))) =
+                program_line.argument
+            {
+                block_name.0.clone()
+            } else {
+                "".into()
+            };
 
-            if data.get_program_block(&block_name.0)?.is_none() {
-                data.add_program_block(block_name.0.clone())?;
+            if data.get_program_block(&block_name)?.is_none() {
+                data.add_program_block(block_name.clone())?;
             }
 
             current_block = data
-                .get_program_block(&block_name.0)?
-                .ok_or_else(|| anyhow!("couldn't find program block {}", block_name.0))?;
+                .get_program_block(&block_name)?
+                .ok_or_else(|| anyhow!("couldn't find program block {}", block_name))?;
         }
 
         let offset = current_block.current_offset as usize;
@@ -293,6 +299,68 @@ LBL2    LDA     X'0F'   . 3
 
         assert_eq!(ltorg.offset, 17);
         assert_eq!(ltorg.data, vec![0x0F]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multi_ltorg() -> Result<()> {
+        let program = r#"
+TST     START   100
+        LDA     X'0E0F'
+        LTORG
+        LDA     X'01'
+        END     TST
+        "#
+        .trim();
+
+        let mut data = run_pass_one(program)?;
+
+        let ltorg_list: Vec<Ltorg> = ltorgs::dsl::ltorgs
+            .order(ltorgs::dsl::offset.asc())
+            .get_results(&mut data.conn)?;
+
+        assert_eq!(ltorg_list.len(), 2);
+
+        assert_eq!(ltorg_list[0].offset, 3);
+        assert_eq!(ltorg_list[1].offset, 8);
+
+        assert_eq!(ltorg_list[0].data, vec![0x0E, 0x0F]);
+        assert_eq!(ltorg_list[1].data, vec![0x01]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_multiblock() -> Result<()> {
+        let program = r#"
+TST     START   100
+        ADD    #5
+        USE     BLK2
+        SUB    #10
+        STA     RES
+        USE
+RES     RESW    1
+        END     TST
+        "#
+        .trim();
+
+        let mut data = run_pass_one(program)?;
+
+        let lines = data.get_lines()?;
+
+        // Block membership
+        assert_eq!(lines[0].block_name, "");
+        assert_eq!(lines[1].block_name, "");
+        assert_eq!(lines[3].block_name, "BLK2");
+        assert_eq!(lines[4].block_name, "BLK2");
+        assert_eq!(lines[6].block_name, "");
+
+        // Block offsets
+        assert_eq!(lines[1].offset, 0);
+        assert_eq!(lines[3].offset, 0);
+        assert_eq!(lines[4].offset, 3);
+        assert_eq!(lines[6].offset, 3);
 
         Ok(())
     }

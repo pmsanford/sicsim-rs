@@ -37,13 +37,13 @@ impl AsmData {
         Self { conn }
     }
 
-    pub fn add_program_block(&mut self, name: String) -> Result<()> {
-        diesel::insert_into(program_blocks::table)
+    pub fn add_program_block(&mut self, name: String) -> Result<ProgramBlock> {
+        let new_block = diesel::insert_into(program_blocks::table)
             .values(&ProgramBlock::new(name.clone()))
-            .execute(&mut self.conn)
+            .get_result(&mut self.conn)
             .with_context(|| format!("inserting program block {name}"))?;
 
-        Ok(())
+        Ok(new_block)
     }
 
     pub fn get_program_block(&mut self, name: &str) -> Result<Option<ProgramBlock>> {

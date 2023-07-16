@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use models::{Line, Literal, ProgramBlock};
-use parser::Expr;
+use parser::{AssemblyLine, Expr, ParserLine};
 
 use crate::{
     data::AsmData,
@@ -17,7 +17,7 @@ pub static MAX_DISP: u16 = 4095; // 0x0F_FF
 pub static MAX_PC: i32 = 2047; // 0x07_FF
 pub static MIN_PC: i32 = -2048; // 0x08_00
 
-pub fn pass_one(program: &str) -> Result<()> {
+pub fn pass_one(program: &str) -> Result<AsmData> {
     let parsed = parser::parse_program(program)?;
     if parsed.len() < 3 {
         bail!("expected at least a start, end, and one directive");
@@ -40,10 +40,10 @@ pub fn pass_one(program: &str) -> Result<()> {
 
     let mut data = AsmData::new_from_env()?;
 
-    data.add_program_block("".into())?;
+    let mut current_block = data.add_program_block("".into())?;
 
     let line = Line {
-        block_name: "".into(),
+        block_name: current_block.block_name.clone(),
         line_no: start_line.line_no,
         directive: start.directive,
         argument: start.argument.clone(),
@@ -58,7 +58,7 @@ pub fn pass_one(program: &str) -> Result<()> {
     data.add_line(&line)?;
 
     let label = Label {
-        block_name: "".into(),
+        block_name: current_block.block_name.clone(),
         line_no: start_line.line_no as i32,
         label_name: start
             .label
@@ -71,30 +71,10 @@ pub fn pass_one(program: &str) -> Result<()> {
 
     data.add_label(&label)?;
 
-    let mut current_block = data.get_program_block("")?.expect("just added this block");
-
     for parsed_line in lines {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
 
-        if program_line.directive == Directive::Command(Assembler::USE) {
-            let block_name = if let Some(Argument::Value(Value::String(ref block_name))) =
-                program_line.argument
-            {
-                block_name.0.clone()
-            } else {
-                "".into()
-            };
-
-            if data.get_program_block(&block_name)?.is_none() {
-                data.add_program_block(block_name.clone())?;
-            }
-
-            current_block = data
-                .get_program_block(&block_name)?
-                .ok_or_else(|| anyhow!("couldn't find program block {}", block_name))?;
-        }
-
-        let offset = current_block.current_offset as usize;
+        current_block = handle_use(program_line, current_block, &mut data)?;
 
         let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
             create_ltorg(&current_block, &mut data)?
@@ -102,66 +82,22 @@ pub fn pass_one(program: &str) -> Result<()> {
             program_line.size()?
         };
 
-        current_block.current_offset += size as i32;
-
-        data.set_current_location(&current_block)?;
-
-        let line = Line {
-            block_name: current_block.block_name.clone(),
-            line_no: parsed_line.line_no,
-            directive: program_line.directive,
-            argument: program_line.argument.clone(),
-            address_modifier: program_line.address_modifier,
-            extended: program_line.extended,
-            indexed: program_line.indexed,
-            size,
-            offset,
-            text: parsed_line.text.clone(),
-        };
+        let line = new_line(parsed_line, program_line, &current_block, size);
 
         data.add_line(&line)?;
 
-        if let Some(ref label) = program_line.label {
-            let offset = if program_line.directive == Directive::Command(Assembler::EQU) {
-                let arg = program_line
-                    .argument
-                    .as_ref()
-                    .ok_or_else(|| anyhow!("expected argument for equ"))?;
-                println!("Evaluating arg {arg:#?}");
-                match arg {
-                    Argument::Value(v) => value_for_expr(v, &mut data)?,
-                    Argument::Expr(e) => eval_expr(e, &mut data)?,
-                }
-            } else {
-                offset as i32
-            };
+        handle_label(program_line, &current_block, &mut data, parsed_line.line_no)?;
 
-            let label = Label {
-                offset,
-                block_name: current_block.block_name.clone(),
-                line_no: line.line_no as i32,
-                label_name: label.0.clone(),
-            };
+        handle_literal(program_line, &current_block, &mut data)?;
 
-            data.add_label(&label)?;
-        }
+        current_block.current_offset += size as i32;
 
-        if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) =
-            program_line.argument
-        {
-            let literal = Literal {
-                block_name: current_block.block_name.clone(),
-                offset: None,
-                value: v.clone(),
-            };
-
-            data.add_literal(&literal)?;
-        }
+        data.set_current_location(&current_block)?;
     }
 
     create_ltorg(&current_block, &mut data)?;
 
-    Ok(())
+    Ok(data)
 }
 
 fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usize> {
@@ -192,6 +128,104 @@ fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usiz
     data.update_literals(&literals)?;
 
     Ok(size)
+}
+
+fn new_line(
+    parsed_line: &ParserLine,
+    program_line: &AssemblyLine,
+    current_block: &ProgramBlock,
+    size: usize,
+) -> Line {
+    Line {
+        block_name: current_block.block_name.clone(),
+        line_no: parsed_line.line_no,
+        directive: program_line.directive,
+        argument: program_line.argument.clone(),
+        address_modifier: program_line.address_modifier,
+        extended: program_line.extended,
+        indexed: program_line.indexed,
+        size,
+        offset: current_block.current_offset as usize,
+        text: parsed_line.text.clone(),
+    }
+}
+
+fn handle_literal(
+    program_line: &AssemblyLine,
+    current_block: &ProgramBlock,
+    data: &mut AsmData,
+) -> Result<()> {
+    if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) = program_line.argument
+    {
+        let literal = Literal {
+            block_name: current_block.block_name.clone(),
+            offset: None,
+            value: v.clone(),
+        };
+
+        data.add_literal(&literal)?;
+    }
+
+    Ok(())
+}
+
+fn handle_label(
+    program_line: &AssemblyLine,
+    current_block: &ProgramBlock,
+    data: &mut AsmData,
+    line_no: usize,
+) -> Result<()> {
+    if let Some(ref label) = program_line.label {
+        let offset = if program_line.directive == Directive::Command(Assembler::EQU) {
+            let arg = program_line
+                .argument
+                .as_ref()
+                .ok_or_else(|| anyhow!("expected argument for equ"))?;
+            println!("Evaluating arg {arg:#?}");
+            match arg {
+                Argument::Value(v) => value_for_expr(v, data)?,
+                Argument::Expr(e) => eval_expr(e, data)?,
+            }
+        } else {
+            current_block.current_offset
+        };
+
+        let label = Label {
+            offset,
+            block_name: current_block.block_name.clone(),
+            line_no: line_no as i32,
+            label_name: label.0.clone(),
+        };
+
+        data.add_label(&label)?;
+    }
+
+    Ok(())
+}
+
+fn handle_use(
+    program_line: &AssemblyLine,
+    current_block: ProgramBlock,
+    data: &mut AsmData,
+) -> Result<ProgramBlock> {
+    if program_line.directive == Directive::Command(Assembler::USE) {
+        let block_name =
+            if let Some(Argument::Value(Value::String(ref block_name))) = program_line.argument {
+                block_name.0.clone()
+            } else {
+                "".into()
+            };
+
+        if data.get_program_block(&block_name)?.is_none() {
+            data.add_program_block(block_name.clone())?;
+        }
+
+        return data
+            .get_program_block(&block_name)?
+            .ok_or_else(|| anyhow!("couldn't find program block {}", block_name));
+    }
+
+    Ok(current_block)
 }
 
 fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
@@ -248,9 +282,7 @@ mod tests {
 
         env::set_var("DATABASE_URL", db_path);
 
-        pass_one(program)?;
-
-        AsmData::from_env()
+        pass_one(program)
     }
 
     #[test]

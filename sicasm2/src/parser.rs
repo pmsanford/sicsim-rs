@@ -439,7 +439,11 @@ fn parse_line(i: &str, line_no: usize) -> Result<ProgramLine> {
     } else if i.trim_start().starts_with('.') {
         ProgramLine::Comment(Comment(i.into()))
     } else {
-        ProgramLine::Assembly(asm_line(i).map_err(|e| anyhow!("[{}] {}", line_no, e))?.1)
+        ProgramLine::Assembly(
+            asm_line(i.trim_end())
+                .map_err(|e| anyhow!("[{}] {}", line_no, e))?
+                .1,
+        )
     })
 }
 

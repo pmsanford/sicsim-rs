@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    labels (block_name, label_name) {
+    labels (label_name) {
         block_name -> Text,
         line_no -> Integer,
         label_name -> Text,

@@ -379,7 +379,7 @@ impl AssemblyLine {
                     Some(Argument::Value(Value::Number(_))) => 3,
                     _ => bail!("invalid byte argument"),
                 },
-                Assembler::LTORG => unimplemented!(),
+                Assembler::LTORG => bail!("ltorg size is calculated in pass one"),
             },
         })
     }

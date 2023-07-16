@@ -26,7 +26,7 @@ CREATE TABLE labels (
   offset integer not null,
   FOREIGN KEY(block_name) REFERENCES program_blocks(block_name),
   FOREIGN KEY(line_no) REFERENCES lines(line_no),
-  PRIMARY KEY (block_name, label_name)
+  PRIMARY KEY (label_name)
 );
 
 CREATE TABLE lines (

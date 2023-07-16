@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 use models::{Line, Literal};
+use parser::Expr;
 
 use crate::{
     data::AsmData,
@@ -108,18 +109,29 @@ pub fn pass_one(program: &str) -> Result<()> {
         data.add_line(&line)?;
 
         if let Some(ref label) = program_line.label {
-            if program_line.directive == Directive::Command(Assembler::EQU) {
-                todo!();
-            } else {
-                let label = Label {
-                    offset: offset as i32,
-                    block_name: current_block.block_name.clone(),
-                    line_no: line.line_no as i32,
-                    label_name: label.0.clone(),
+            let offset = if program_line.directive == Directive::Command(Assembler::EQU) {
+                let arg = program_line
+                    .argument
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("expected argument for equ"))?;
+                let offset = match arg {
+                    Argument::Value(v) => value_for_expr(&v, &mut data)?,
+                    Argument::Expr(e) => eval_expr(&e, &mut data)?,
                 };
 
-                data.add_label(&label)?;
-            }
+                offset
+            } else {
+                offset as i32
+            };
+
+            let label = Label {
+                offset,
+                block_name: current_block.block_name.clone(),
+                line_no: line.line_no as i32,
+                label_name: label.0.clone(),
+            };
+
+            data.add_label(&label)?;
         }
 
         if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) =
@@ -136,4 +148,36 @@ pub fn pass_one(program: &str) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
+    let v = match value {
+        Value::Bytes(_) | Value::Chars(_) => bail!("cannot convert bytes/chars to i32"),
+        Value::Number(n) => *n,
+        Value::String(label) => {
+            data.get_label(&label.0)?
+                .ok_or_else(|| anyhow!("label {} doesn't exist", label.0))?
+                .offset
+        }
+    };
+
+    Ok(v)
+}
+
+fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
+    let lhs = value_for_expr(&expr.value, data)?;
+
+    let rhs = match &expr.target {
+        parser::ExprTarget::Argument(v) => value_for_expr(&v, data)?,
+        parser::ExprTarget::Expr(e) => eval_expr(&e, data)?,
+    };
+
+    let result = match expr.op {
+        parser::ExprOp::Add => lhs + rhs,
+        parser::ExprOp::Subtract => lhs - rhs,
+        parser::ExprOp::Multiply => lhs * rhs,
+        parser::ExprOp::Divide => lhs / rhs,
+    };
+
+    Ok(result)
 }

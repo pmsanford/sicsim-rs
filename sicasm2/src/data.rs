@@ -45,6 +45,13 @@ impl AsmData {
         Ok(block)
     }
 
+    pub fn get_label(&mut self, name: &str) -> Result<Option<Label>> {
+        use crate::schema::labels::dsl::labels;
+        let label = labels.find(name).get_result(&mut self.conn).optional()?;
+
+        Ok(label)
+    }
+
     pub fn set_current_location(&mut self, block: &ProgramBlock) -> Result<()> {
         use crate::schema::program_blocks::dsl::current_offset;
         diesel::update(block)

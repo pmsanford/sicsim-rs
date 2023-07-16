@@ -5,7 +5,7 @@ use crate::{
 use diesel::prelude::*;
 
 #[derive(Queryable, Debug, Identifiable, Associations, Insertable)]
-#[diesel(primary_key(block_name, label_name))]
+#[diesel(primary_key(label_name))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(Line, foreign_key = line_no))]
 #[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]

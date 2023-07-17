@@ -56,6 +56,16 @@ impl AsmData {
         Ok(block)
     }
 
+    pub fn get_label_by_line(&mut self, number: usize) -> Result<Option<Label>> {
+        use crate::schema::labels::dsl::{labels, line_no};
+        let label = labels
+            .filter(line_no.eq(number as i32))
+            .get_result(&mut self.conn)
+            .optional()?;
+
+        Ok(label)
+    }
+
     pub fn get_label(&mut self, name: &str) -> Result<Option<Label>> {
         use crate::schema::labels::dsl::labels;
         let label = labels.find(name).get_result(&mut self.conn).optional()?;
@@ -143,5 +153,12 @@ impl AsmData {
         let line_list = lines.order(line_no.asc()).get_results(&mut self.conn)?;
 
         Ok(line_list)
+    }
+
+    pub fn get_labels(&mut self) -> Result<Vec<Label>> {
+        use crate::schema::labels::dsl::labels;
+        let label_list = labels.get_results(&mut self.conn)?;
+
+        Ok(label_list)
     }
 }

@@ -266,6 +266,25 @@ pub enum Argument {
     Expr(Expr),
 }
 
+pub trait Arguments {
+    fn string(&self) -> Result<String>;
+    fn literal(&self) -> Result<Vec<u8>>;
+}
+
+impl Arguments for Option<Argument> {
+    fn string(&self) -> Result<String> {
+        let Some(Argument::Value(Value::String(l))) = self else { bail!("expected string"); };
+
+        Ok(l.0.clone())
+    }
+
+    fn literal(&self) -> Result<Vec<u8>> {
+        let Some(Argument::Value(Value::Bytes(v) | Value::Chars(v))) = self else { bail!("expected literal"); };
+
+        Ok(v.clone())
+    }
+}
+
 pub fn argument(i: &str) -> IResult<&str, Argument> {
     // Note that order is important here - the first one to succeed
     // is returned, and label will match an expression that starts with

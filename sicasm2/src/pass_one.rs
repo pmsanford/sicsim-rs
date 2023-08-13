@@ -217,18 +217,10 @@ mod tests {
     use crate::models::*;
     use crate::schema::*;
     use diesel::prelude::*;
-    use std::env;
-    use temp_dir::TempDir;
 
     use super::*;
 
     fn run_pass_one(program: &str) -> Result<AsmData> {
-        let dir = TempDir::new()?;
-        let db = dir.child("test.db");
-        let db_path = db.to_str().unwrap();
-
-        env::set_var("DATABASE_URL", db_path);
-
         pass_one(program)
     }
 

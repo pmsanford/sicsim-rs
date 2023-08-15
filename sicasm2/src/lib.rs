@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use data::AsmData;
 use parser::{Argument, Arguments, Assembler, Directive, Value};
-use record::Record;
+use record::{Data, Record, Text};
 use sicdbg::Sdb;
 
 pub mod data;
@@ -50,7 +50,42 @@ fn pass_two(mut data: AsmData) -> Result<String> {
 
     let mut cur_base = None;
 
+    let mut current_text: Option<Text> = None;
+
     for line in lines.iter().skip(1) {
+        fn add_instruction(
+            current_text: &mut Option<Text>,
+            records: &mut Vec<Record>,
+            offset: usize,
+            mut instruction: Data,
+        ) {
+            let mut text = current_text.take().unwrap_or_else(|| Text::new(offset));
+            if let Data::Byte(mut bytes) = instruction {
+                while !bytes.is_empty() {
+                    let space_remaining = 30 - text.len();
+                    if space_remaining < bytes.len() {
+                        let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
+                        let new_bytes = new_text.len();
+                        text.instructions.push(Data::Byte(new_text));
+                        records.push(Record::Text(text));
+                        text = Text {
+                            address: offset + new_bytes,
+                            instructions: vec![],
+                        };
+                    } else {
+                        break;
+                    }
+                }
+
+                instruction = Data::Byte(bytes);
+            } else if text.len() + instruction.len() > 30 {
+                records.push(Record::Text(text));
+                text = Text::new(offset);
+            }
+            text.instructions.push(instruction);
+
+            *current_text = Some(text);
+        }
         debug.add_line(line.offset as u32, line.text.clone(), line.line_no);
         match line.directive {
             Directive::Command(cmd) => match cmd {
@@ -63,6 +98,12 @@ fn pass_two(mut data: AsmData) -> Result<String> {
                 }
                 Assembler::BYTE => {
                     let bytes = line.argument.literal()?;
+                    add_instruction(
+                        &mut current_text,
+                        &mut records,
+                        start_addr as usize + line.offset,
+                        Data::Byte(bytes),
+                    );
                 }
                 Assembler::LTORG => todo!(),
                 Assembler::ORG => todo!(),

@@ -8,11 +8,11 @@ use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp, SVC};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until1, take_while1},
-    character::complete::{alpha1, alphanumeric0, anychar, digit1, space1},
+    character::complete::{alpha1, alphanumeric0, anychar, digit1, satisfy, space1},
     combinator::{all_consuming, map, map_parser, map_res, opt, recognize},
     error::ErrorKind,
     multi::{many0, many1},
-    sequence::{delimited, pair, preceded, tuple},
+    sequence::{delimited, pair, preceded, separated_pair, tuple},
     IResult,
 };
 use strum::EnumString;
@@ -327,6 +327,10 @@ pub fn value(i: &str) -> IResult<&str, Value> {
             let number = g.parse::<i32>()?;
             Ok::<Value, <i32 as FromStr>::Err>(Value::Number(number))
         }),
+        map(
+            recognize(separated_pair(alpha1, tag(","), satisfy(|c| c != 'X'))),
+            |g: &str| Value::String(Label(g.into())),
+        ),
         map(recognize(pair(alpha1, alphanumeric0)), |g: &str| {
             Value::String(Label(g.into()))
         }),

@@ -130,7 +130,6 @@ fn handle_label(
                 .argument
                 .as_ref()
                 .ok_or_else(|| anyhow!("expected argument for equ"))?;
-            println!("Evaluating arg {arg:#?}");
             match arg {
                 Argument::Value(v) => value_for_expr(v, data)?,
                 Argument::Expr(e) => eval_expr(e, data)?,
@@ -188,8 +187,6 @@ fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
         }
     };
 
-    println!("Value for {:#?}: {v}", value);
-
     Ok(v)
 }
 
@@ -200,9 +197,6 @@ fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
         ExprTarget::Argument(v) => value_for_expr(v, data)?,
         ExprTarget::Expr(e) => eval_expr(e, data)?,
     };
-
-    println!("Eval: {:#?}", expr);
-    println!("\tlhs: {lhs} rhs: {rhs} op: {:?}", expr.op);
 
     let result = match expr.op {
         ExprOp::Add => lhs + rhs,

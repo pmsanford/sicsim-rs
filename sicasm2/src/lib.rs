@@ -126,7 +126,6 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
             *current_text = Some(text);
         }
         debug.add_line(line.offset as u32, line.text.clone(), line.line_no);
-        println!("Assembling {line:?}");
         match line.directive {
             Directive::Command(cmd) => match cmd {
                 Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
@@ -221,7 +220,6 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
                 }
                 parser::Op::TwoReg(opcode) => {
                     let arg_str = line.argument.expect_string()?;
-                    println!("Argstr: {arg_str}");
                     let (r1s, r2s) = arg_str
                         .split_once(',')
                         .ok_or_else(|| anyhow!("Malformed TwoReg argument"))?;
@@ -280,15 +278,12 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
                                     .ok_or_else(|| anyhow!("unaddressed literal in pass two"))?,
                             ),
                             Argument::Value(Value::Number(i)) => (true, *i),
-                            Argument::Value(Value::String(s)) => {
-                                println!("label: {s:?}");
-                                (
-                                    false,
-                                    data.get_label(&s.0)?
-                                        .ok_or_else(|| anyhow!("couldn't find label {}", s.0))?
-                                        .offset,
-                                )
-                            }
+                            Argument::Value(Value::String(s)) => (
+                                false,
+                                data.get_label(&s.0)?
+                                    .ok_or_else(|| anyhow!("couldn't find label {}", s.0))?
+                                    .offset,
+                            ),
                             Argument::Expr(_) => bail!("expr argument to variable op {opcode}"),
                         }
                     };

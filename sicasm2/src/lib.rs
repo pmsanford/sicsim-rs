@@ -358,6 +358,24 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
         }
     }
 
+    for modification in modifications {
+        records.push(Record::Modification(modification));
+    }
+
+    let last_line = lines.last().expect("last line");
+
+    if last_line.directive !=  Directive::Command(Assembler::END) {
+        bail!("Expected end directive");
+    }
+
+    let start_label = last_line.argument.expect_string()?;
+
+    let start_label = data.get_label(&start_label)?.ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
+
+    records.push(Record::End {
+        first_instruction: (start_label.offset + start_addr) as usize
+    });
+
     let mut assembled = String::new();
 
     for record in records {

@@ -14,7 +14,7 @@ fn main() -> Result<()> {
 
     let prog = pass_two(data).with_context(|| "pass two")?;
 
-    println!("Prog:\n{}", prog);
+    print!("{}", prog);
 
     Ok(())
 }

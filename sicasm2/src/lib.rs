@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Write, mem, sync::OnceLock};
+use std::{collections::HashMap, mem, sync::OnceLock};
 
 use anyhow::{anyhow, bail, Result};
 use data::AsmData;
@@ -48,7 +48,7 @@ pub fn register(r: &str) -> Result<Register> {
         .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find register {}", r)))
 }
 
-pub fn pass_two(mut data: AsmData) -> Result<String> {
+pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
     let lines = data.get_lines()?;
 
     let start = &lines[0];
@@ -117,7 +117,7 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
                 }
 
                 instruction = Data::Byte(bytes);
-            } else if text.len() + instruction.len() > 30 {
+            } else if text.len() + instruction.length() > 30 {
                 records.push(Record::Text(text));
                 text = Text::new(offset);
             }
@@ -273,7 +273,7 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
                         match argument {
                             Argument::Value(Value::Bytes(b) | Value::Chars(b)) => (
                                 false,
-                                data.get_literal(&line.block_name, &b)?
+                                data.get_literal(&line.block_name, b)?
                                     .offset
                                     .ok_or_else(|| anyhow!("unaddressed literal in pass two"))?,
                             ),
@@ -298,9 +298,7 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
                         match (mode, constant, line.extended, pc_disp, base_disp) {
                             (parser::AddressModifier::Immediate, true, _, _, _)
                             | (_, _, true, _, _) => (target_offset, AddressRelativeTo::Direct),
-                            (_, _, _, pcd, _)
-                                if i32::from(MIN_PC) < pcd && pcd < i32::from(MAX_PC) =>
-                            {
+                            (_, _, _, pcd, _) if MIN_PC < pcd && pcd < MAX_PC => {
                                 (pc_disp, AddressRelativeTo::PC)
                             }
                             (_, _, _, _, Some(bd)) if bd < MAX_DISP as i32 => {
@@ -364,22 +362,19 @@ pub fn pass_two(mut data: AsmData) -> Result<String> {
 
     let last_line = lines.last().expect("last line");
 
-    if last_line.directive !=  Directive::Command(Assembler::END) {
+    if last_line.directive != Directive::Command(Assembler::END) {
         bail!("Expected end directive");
     }
 
     let start_label = last_line.argument.expect_string()?;
 
-    let start_label = data.get_label(&start_label)?.ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
+    let start_label = data
+        .get_label(&start_label)?
+        .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
 
     records.push(Record::End {
-        first_instruction: (start_label.offset + start_addr) as usize
+        first_instruction: (start_label.offset + start_addr) as usize,
     });
 
-    let mut assembled = String::new();
-
-    for record in records {
-        writeln!(&mut assembled, "{}", record)?;
-    }
-    Ok(assembled)
+    Ok((records, debug))
 }

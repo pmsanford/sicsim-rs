@@ -10,7 +10,7 @@ pub enum Data {
 }
 
 impl Data {
-    pub fn len(&self) -> usize {
+    pub fn length(&self) -> usize {
         match self {
             Data::Instruction(op) => op.len() as usize,
             Data::Byte(b) => b.len(),
@@ -33,7 +33,10 @@ impl Text {
         }
     }
     pub fn len(&self) -> usize {
-        self.instructions.iter().map(Data::len).sum()
+        self.instructions.iter().map(Data::length).sum()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.instructions.is_empty()
     }
 }
 

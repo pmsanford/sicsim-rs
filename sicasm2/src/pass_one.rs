@@ -104,6 +104,10 @@ fn handle_literal(
     current_block: &ProgramBlock,
     data: &mut AsmData,
 ) -> Result<()> {
+    if program_line.directive == Directive::Command(Assembler::BYTE) {
+        return Ok(());
+    }
+
     if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) = program_line.argument
     {
         let literal = Literal {

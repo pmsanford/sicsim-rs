@@ -481,6 +481,25 @@ pub fn parse_program(program: &str) -> Result<Vec<ParserLine>> {
         .collect())
 }
 
+pub trait AsmArg {
+    fn expect_string(&self) -> Result<String>;
+    fn expect_number(&self) -> Result<u32>;
+}
+
+impl AsmArg for Option<Argument> {
+    fn expect_string(&self) -> Result<String> {
+        let Some(Argument::Value(Value::String(s))) = self else { bail!("expected string argument"); };
+
+        Ok(s.0.clone())
+    }
+
+    fn expect_number(&self) -> Result<u32> {
+        let Some(Argument::Value(Value::Number(i))) = self else { bail!("expected string argument"); };
+
+        Ok(*i as u32)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

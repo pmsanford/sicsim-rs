@@ -56,6 +56,13 @@ impl AsmData {
         Ok(block)
     }
 
+    pub fn get_program_blocks(&mut self) -> Result<Vec<ProgramBlock>> {
+        use crate::schema::program_blocks::dsl::program_blocks;
+        let block = program_blocks.get_results(&mut self.conn)?;
+
+        Ok(block)
+    }
+
     pub fn get_label_by_line(&mut self, number: usize) -> Result<Option<Label>> {
         use crate::schema::labels::dsl::{labels, line_no};
         let label = labels
@@ -129,6 +136,40 @@ impl AsmData {
             .with_context(|| format!("inserting ltorg {}", ltorg.offset))?;
 
         Ok(())
+    }
+
+    pub fn get_literal(&mut self, block_name: &str, literal: &[u8]) -> Result<Literal> {
+        use crate::schema::literals::dsl::literals;
+        let literal = literals
+            .find((block_name, literal))
+            .get_result(&mut self.conn)?;
+
+        Ok(literal)
+    }
+
+    pub fn get_ltorg(&mut self, block_name: &str, offset: usize) -> Result<Ltorg> {
+        use crate::schema::ltorgs::dsl::{self, ltorgs};
+        let ltorg = ltorgs
+            .filter(
+                dsl::block_name
+                    .eq(block_name)
+                    .and(dsl::offset.eq(offset as i32)),
+            )
+            .get_result(&mut self.conn)?;
+
+        Ok(ltorg)
+    }
+
+    pub fn get_final_ltorg(&mut self, block_name: &str) -> Result<Option<Ltorg>> {
+        use crate::schema::ltorgs::dsl::{self, ltorgs};
+        let ltorg = ltorgs
+            .filter(dsl::block_name.eq(block_name))
+            .order(dsl::offset.desc())
+            .limit(1)
+            .get_result(&mut self.conn)
+            .optional()?;
+
+        Ok(ltorg)
     }
 
     pub fn update_literals(&mut self, literals: &Vec<Literal>) -> Result<()> {

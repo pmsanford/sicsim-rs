@@ -1,20 +1,20 @@
-use anyhow::Result;
-use sicasm2::pass_one::pass_one;
+use std::{env, fs};
+
+use anyhow::{Context, Result};
+use sicasm2::{data::AsmData, pass_one::pass_one, pass_two};
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;
 
-    let program = r#"
-DISP    START   100
-        ADD     #5
-DOOHOO  ADD     #10
-        MUL     DOOHOO
-LP      COMP    VAL
-        JLT     LP
-VAL     WORD    100
-        END     DISP"#;
+    let input = fs::read_to_string(env::args().nth(1).expect("program path"))?;
 
-    pass_one(program)?;
+    pass_one(&input).with_context(|| "pass one")?;
+
+    let data = AsmData::new_from_env()?;
+
+    let prog = pass_two(data).with_context(|| "pass two")?;
+
+    println!("Prog:\n{}", prog);
 
     Ok(())
 }

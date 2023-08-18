@@ -86,22 +86,6 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
     );
 
     fn build(row: Self::Row) -> diesel::deserialize::Result<Self> {
-        println!("Row: {:?}", row);
-        println!(
-            "directive: {:?}",
-            serde_json::from_str::<Directive>(&row.2)?
-        );
-        println!(
-            "argument: {:?}",
-            row.3
-                .as_ref()
-                .map(|arg| serde_json::from_str::<Argument>(arg))
-                .transpose()?
-        );
-        println!(
-            "addr: {:?}",
-            serde_json::from_str::<AddressModifier>(&row.4)?
-        );
         Ok(Self {
             block_name: row.0,
             line_no: row.1.try_into()?,

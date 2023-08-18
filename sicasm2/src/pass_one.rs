@@ -42,7 +42,9 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
         data.set_current_location(&current_block)?;
     }
 
-    create_ltorg(&current_block, &mut data)?;
+    for block in data.get_program_blocks()? {
+        create_ltorg(&block, &mut data)?;
+    }
 
     Ok(data)
 }

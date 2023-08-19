@@ -9,7 +9,7 @@ Implementation of the SIC and SIC/XE virtual machines. The SIC implementation is
 A very hacky SIC assembler. I started implementing this as a temporary aid to implementing the VM; I've since realized this project is going to require a more extensible assembler to aid development.
 
 ### sicasm2
-A WIP reimplementation of the above assembler.
+A reimplementation of the above assembler using a parser combinator approach to parsing and storing intermediate state in a sqlite database.
 
 ### sicdbg
 Definitions for debugging symbol formats emitted by the assembler and shared by other components to allow linking executed instructions to source lines.

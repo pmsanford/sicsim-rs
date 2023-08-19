@@ -1,8 +1,8 @@
 use std::io::Write;
 use std::{env, fs};
 
-use anyhow::{Context, Result};
-use sicasm2::{pass_one::pass_one, pass_two};
+use anyhow::Result;
+use sicasm2::assemble_program;
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;
@@ -17,9 +17,7 @@ fn main() -> Result<()> {
     let mut output = fs::File::create(format!("{}.ebj", output_name))?;
     let mut debug = fs::File::create(format!("{}.sdb", output_name))?;
 
-    let data = pass_one(&fs::read_to_string(&filename)?).with_context(|| "pass one")?;
-
-    let (prog, sdb) = pass_two(data).with_context(|| "pass two")?;
+    let (prog, sdb) = assemble_program(&fs::read_to_string(&filename)?)?;
 
     for record in prog {
         writeln!(output, "{}", record)?;

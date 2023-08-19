@@ -3,7 +3,7 @@ A work-in-progress Rust simulator for the Simple Instructional Computer created 
 
 ## Components
 ### libsic
-Implementation of the SIC and SIC/XE virtual machines. The SIC implementation is complete; The SIC/XE implementation supports all features of all existing simulators I'm aware of. Currently working on implementing interrupts and IO channels.
+Implementation of the SIC and SIC/XE virtual machines. The SIC implementation is complete; The SIC/XE implementation supports all features of all existing simulators I'm aware of. Currently working on implementing interrupts and IO channels, but I have decided the easiest way to do that is implement an entire operating system (see sickos) so it might be a while.
 
 ### sicasm
 A very hacky SIC assembler. I started implementing this as a temporary aid to implementing the VM; I've since realized this project is going to require a more extensible assembler to aid development.

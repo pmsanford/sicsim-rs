@@ -2,7 +2,7 @@ use std::io::Write;
 use std::{env, fs};
 
 use anyhow::{Context, Result};
-use sicasm2::{data::AsmData, pass_one::pass_one, pass_two};
+use sicasm2::{pass_one::pass_one, pass_two};
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;
@@ -17,9 +17,7 @@ fn main() -> Result<()> {
     let mut output = fs::File::create(format!("{}.ebj", output_name))?;
     let mut debug = fs::File::create(format!("{}.sdb", output_name))?;
 
-    pass_one(&fs::read_to_string(&filename)?).with_context(|| "pass one")?;
-
-    let data = AsmData::new_from_env()?;
+    let data = pass_one(&fs::read_to_string(&filename)?).with_context(|| "pass one")?;
 
     let (prog, sdb) = pass_two(data).with_context(|| "pass two")?;
 

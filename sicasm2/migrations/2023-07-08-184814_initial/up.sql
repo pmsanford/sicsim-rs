@@ -48,6 +48,5 @@ CREATE TABLE lines (
 );
 
 CREATE TABLE control_sections (
-  section_name text primary key not null,
-  current_offset integer not null
+  section_name text primary key not null
 );

@@ -155,14 +155,10 @@ impl ProgramBlockInsert {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ControlSection {
     pub section_name: String,
-    pub current_offset: i32,
 }
 
 impl ControlSection {
     pub fn new(name: String) -> Self {
-        ControlSection {
-            section_name: name,
-            current_offset: 0,
-        }
+        ControlSection { section_name: name }
     }
 }

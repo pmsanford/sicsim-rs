@@ -3,7 +3,6 @@
 diesel::table! {
     control_sections (section_name) {
         section_name -> Text,
-        current_offset -> Integer,
     }
 }
 

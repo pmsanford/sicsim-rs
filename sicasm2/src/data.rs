@@ -247,10 +247,17 @@ impl AsmData {
         Ok(label_list)
     }
 
+    pub fn get_section_length(&mut self, section_name: &str) -> Result<i32> {
+        Ok(self
+            .get_program_blocks(section_name)?
+            .into_iter()
+            .map(|block| block.current_offset)
+            .sum())
+    }
+
     pub fn create_control_section(&mut self, name: &str) -> Result<ControlSection> {
         let csect = ControlSection {
             section_name: name.to_owned(),
-            current_offset: 0,
         };
 
         Ok(diesel::insert_into(control_sections::table)

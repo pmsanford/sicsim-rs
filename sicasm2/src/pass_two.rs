@@ -168,9 +168,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
             Directive::Command(cmd) => match cmd {
                 Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
                 Assembler::CSECT => {
-                    //TODO: CSECT instruction should have offset from previous CSECT in pass one
-                    //for this to work
-                    current_csect.set_length(line.offset);
+                    // TODO: Is the length this simple?
+                    let length = data.get_section_length(&current_csect.name)?;
+                    current_csect.set_length(length as usize);
                     control_sections.push(current_csect);
                     let name = line.argument.expect_string()?;
                     current_csect = ControlSectionBuilder::new(name, 0);

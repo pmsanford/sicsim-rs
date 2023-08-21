@@ -1,6 +1,6 @@
 use crate::models::{ControlSection, Line, Literal, ProgramBlock};
-use crate::parser::{parse_program, AssemblyLine, Expr, ExprOp, ExprTarget, ParserLine};
-use anyhow::{anyhow, bail, Result};
+use crate::parser::{parse_program, AsmArg, AssemblyLine, Expr, ExprOp, ExprTarget, ParserLine};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
     data::AsmData,
@@ -9,43 +9,60 @@ use crate::{
 };
 
 pub fn pass_one(program: &str) -> Result<AsmData> {
-    let parsed = parse_program(program)?;
+    let parsed = parse_program(program).context("parsing")?;
     if parsed.len() < 3 {
         bail!("expected at least a start, end, and one directive");
     }
 
     let mut data = AsmData::new_from_env()?;
 
-    let mut current_section = data.add_control_section("".into())?;
+    let first_line = parsed
+        .iter()
+        .find(|l| matches!(l.data, ProgramLine::Assembly(_)))
+        .expect("program line");
 
-    let mut current_block =
-        data.add_program_block(current_section.section_name.clone(), "".into())?;
+    let ProgramLine::Assembly(ref start_line) = first_line.data else { bail!("impossible"); };
+
+    let start_label = start_line.label.as_ref().expect("program name").0.clone();
+
+    let mut current_section = data.add_control_section(start_label)?;
+
+    let mut current_block = data.add_program_block(
+        current_section.section_name.clone(),
+        current_section.section_name.clone(),
+    )?;
 
     for parsed_line in parsed.iter() {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
+        {
+            (current_section, current_block) =
+                handle_csect(program_line, current_section, current_block, &mut data)?;
 
-        current_block = handle_use(program_line, &current_section, current_block, &mut data)?;
+            current_block = handle_use(program_line, &current_section, current_block, &mut data)?;
 
-        let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
-            create_ltorg(&current_block, &mut data)?
-        } else {
-            program_line.size()?
-        };
+            let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
+                create_ltorg(&current_block, &mut data)?
+            } else {
+                program_line.size()?
+            };
 
-        let line = new_line(parsed_line, program_line, &current_block, size);
+            let line = new_line(parsed_line, program_line, &current_block, size);
 
-        data.add_line(&line)?;
+            data.add_line(&line)?;
 
-        handle_label(program_line, &current_block, &mut data, parsed_line.line_no)?;
+            handle_label(program_line, &current_block, &mut data, parsed_line.line_no)?;
 
-        handle_literal(program_line, &current_block, &mut data)?;
+            handle_literal(program_line, &current_block, &mut data)?;
 
-        current_block.current_offset += size as i32;
+            current_block.current_offset += size as i32;
 
-        data.set_current_location(&current_block)?;
+            data.set_current_location(&current_block)?;
+            Ok::<(), anyhow::Error>(())
+        }
+        .with_context(|| format!("pass one, line {}", parsed_line.line_no))?
     }
 
-    for block in data.get_program_blocks()? {
+    for block in data.get_program_blocks(&current_section.section_name)? {
         create_ltorg(&block, &mut data)?;
     }
 
@@ -89,7 +106,7 @@ fn new_line(
     size: usize,
 ) -> Line {
     Line {
-        block_id: current_block.block_id.clone(),
+        block_id: current_block.block_id,
         line_no: parsed_line.line_no,
         directive: program_line.directive,
         argument: program_line.argument.clone(),
@@ -113,13 +130,15 @@ fn handle_literal(
 
     if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) = program_line.argument
     {
-        let literal = Literal {
-            block_id: current_block.block_id.clone(),
-            offset: None,
-            value: v.clone(),
-        };
+        if !data.literal_exists(current_block.block_id, v)? {
+            let literal = Literal {
+                block_id: current_block.block_id,
+                offset: None,
+                value: v.clone(),
+            };
 
-        data.add_literal(&literal)?;
+            data.add_literal(&literal)?;
+        }
     }
 
     Ok(())
@@ -140,6 +159,7 @@ fn handle_label(
             match arg {
                 Argument::Value(v) => value_for_expr(v, data)?,
                 Argument::Expr(e) => eval_expr(e, data)?,
+                Argument::ExprCurrentOffset => current_block.current_offset,
             }
         } else {
             current_block.current_offset
@@ -160,10 +180,26 @@ fn handle_label(
 
 fn handle_csect(
     program_line: &AssemblyLine,
-    current_section: &ControlSection,
+    current_section: ControlSection,
+    current_block: ProgramBlock,
     data: &mut AsmData,
 ) -> Result<(ControlSection, ProgramBlock)> {
-    todo!()
+    if program_line.directive == Directive::Command(Assembler::CSECT) {
+        // This currently assumes you can't "resume" control sections
+        // like you can program blocks.
+        for block in data.get_program_blocks(&current_section.section_name)? {
+            create_ltorg(&block, data)?;
+        }
+
+        let section_name = program_line.argument.expect_string()?;
+
+        let new_section = data.create_control_section(&section_name)?;
+        let new_block = data.add_program_block(section_name, "".into())?;
+
+        Ok((new_section, new_block))
+    } else {
+        Ok((current_section, current_block))
+    }
 }
 
 fn handle_use(

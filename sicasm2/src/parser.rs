@@ -265,6 +265,7 @@ pub enum Value {
 pub enum Argument {
     Value(Value),
     Expr(Expr),
+    ExprCurrentOffset,
 }
 
 pub trait Arguments {
@@ -290,7 +291,11 @@ pub fn argument(i: &str) -> IResult<&str, Argument> {
     // Note that order is important here - the first one to succeed
     // is returned, and label will match an expression that starts with
     // a label.
-    alt((map(expr, Argument::Expr), map(value, Argument::Value)))(i)
+    alt((
+        map(tag("*"), |_| Argument::ExprCurrentOffset),
+        map(expr, Argument::Expr),
+        map(value, Argument::Value),
+    ))(i)
 }
 
 pub fn label(i: &str) -> IResult<&str, Label> {
@@ -315,7 +320,12 @@ pub fn char_bytes(i: &str) -> IResult<&str, Vec<u8>> {
 }
 
 pub fn value(i: &str) -> IResult<&str, Value> {
-    let aposdelimited = |starts| preceded(starts, delimited(tag("'"), take_until1("'"), tag("'")));
+    let aposdelimited = |starts| {
+        preceded(
+            opt(tag("=")),
+            preceded(starts, delimited(tag("'"), take_until1("'"), tag("'"))),
+        )
+    };
     // Note that order is important here - label will match a constant
     // that starts with X or C
     let (i, res): (&str, Value) = alt((

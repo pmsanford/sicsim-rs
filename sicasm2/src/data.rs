@@ -88,9 +88,11 @@ impl AsmData {
         Ok(block)
     }
 
-    pub fn get_program_blocks(&mut self) -> Result<Vec<ProgramBlock>> {
-        use crate::schema::program_blocks::dsl::program_blocks;
-        let block = program_blocks.get_results(&mut self.conn)?;
+    pub fn get_program_blocks(&mut self, section_name: &str) -> Result<Vec<ProgramBlock>> {
+        use crate::schema::program_blocks::dsl::{self, program_blocks};
+        let block = program_blocks
+            .filter(dsl::section_name.eq(section_name))
+            .get_results(&mut self.conn)?;
 
         Ok(block)
     }
@@ -126,7 +128,7 @@ impl AsmData {
         diesel::insert_into(labels::table)
             .values(label)
             .execute(&mut self.conn)
-            .with_context(|| format!("inserting label {}", label.label_name))?;
+            .with_context(|| format!("inserting label {:?}", label))?;
 
         Ok(())
     }
@@ -138,6 +140,16 @@ impl AsmData {
             .with_context(|| format!("inserting line {}", line.line_no))?;
 
         Ok(())
+    }
+
+    pub fn literal_exists(&mut self, block_id: i32, literal_value: &Vec<u8>) -> Result<bool> {
+        use literals::dsl::literals;
+
+        Ok(literals
+            .find((block_id, literal_value))
+            .get_result::<Literal>(&mut self.conn)
+            .optional()?
+            .is_some())
     }
 
     pub fn add_literal(&mut self, literal: &Literal) -> Result<()> {
@@ -233,5 +245,16 @@ impl AsmData {
         let label_list = labels.get_results(&mut self.conn)?;
 
         Ok(label_list)
+    }
+
+    pub fn create_control_section(&mut self, name: &str) -> Result<ControlSection> {
+        let csect = ControlSection {
+            section_name: name.to_owned(),
+            current_offset: 0,
+        };
+
+        Ok(diesel::insert_into(control_sections::table)
+            .values(csect)
+            .get_result(&mut self.conn)?)
     }
 }

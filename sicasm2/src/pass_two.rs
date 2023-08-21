@@ -204,7 +204,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                                     .offset
                             }
                         },
-                        Argument::Expr(_) => bail!("Found EXPR for WORD value"),
+                        Argument::Expr(_) | Argument::ExprCurrentOffset => {
+                            bail!("Found EXPR for WORD value")
+                        }
                     };
 
                     current_csect.add_instruction(line.offset, Data::Word(arg as u32));
@@ -276,6 +278,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     {
                         (true, 0)
                     } else {
+                        println!("Assembling variable op {:?}", line);
                         let Some(ref argument) = line.argument else { bail!("No argument for variable op {opcode}"); };
 
                         match argument {
@@ -292,7 +295,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                                     .ok_or_else(|| anyhow!("couldn't find label {}", s.0))?
                                     .offset,
                             ),
-                            Argument::Expr(_) => bail!("expr argument to variable op {opcode}"),
+                            Argument::Expr(_) | Argument::ExprCurrentOffset => {
+                                bail!("expr argument to variable op {opcode}")
+                            }
                         }
                     };
 

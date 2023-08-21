@@ -29,6 +29,7 @@ pub enum Assembler {
     START,
     BASE,
     BYTE,
+    CSECT,
     LTORG,
     ORG,
     EQU,
@@ -385,7 +386,8 @@ impl AssemblyLine {
                 | Assembler::ORG
                 | Assembler::EQU
                 | Assembler::USE
-                | Assembler::END => 0,
+                | Assembler::END
+                | Assembler::CSECT => 0,
                 Assembler::WORD => 3,
                 Assembler::RESW => match &self.argument {
                     Some(Argument::Value(Value::Number(n))) => *n as usize * 3,

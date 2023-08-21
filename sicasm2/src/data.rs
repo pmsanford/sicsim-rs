@@ -37,19 +37,51 @@ impl AsmData {
         Self { conn }
     }
 
-    pub fn add_program_block(&mut self, name: String) -> Result<ProgramBlock> {
+    pub fn add_control_section(&mut self, section_name: String) -> Result<ControlSection> {
+        let new_section = diesel::insert_into(control_sections::table)
+            .values(&ControlSection::new(section_name.clone()))
+            .get_result(&mut self.conn)
+            .with_context(|| format!("inserting control section {section_name}"))?;
+
+        Ok(new_section)
+    }
+
+    pub fn add_program_block(
+        &mut self,
+        section_name: String,
+        name: String,
+    ) -> Result<ProgramBlock> {
         let new_block = diesel::insert_into(program_blocks::table)
-            .values(&ProgramBlock::new(name.clone()))
+            .values(&ProgramBlockInsert::new(section_name, name.clone()))
             .get_result(&mut self.conn)
             .with_context(|| format!("inserting program block {name}"))?;
 
         Ok(new_block)
     }
 
-    pub fn get_program_block(&mut self, name: &str) -> Result<Option<ProgramBlock>> {
+    pub fn get_program_block(&mut self, id: i32) -> Result<Option<ProgramBlock>> {
         use crate::schema::program_blocks::dsl::program_blocks;
         let block = program_blocks
-            .find(name)
+            .find(id)
+            .get_result(&mut self.conn)
+            .optional()?;
+
+        Ok(block)
+    }
+
+    pub fn get_program_block_by_name(
+        &mut self,
+        section_name: &str,
+        name: &str,
+    ) -> Result<Option<ProgramBlock>> {
+        // There's a unique constraint on (section_name, block_name)
+        use crate::schema::program_blocks::dsl::{self, program_blocks};
+        let block = program_blocks
+            .filter(
+                dsl::block_name
+                    .eq(name)
+                    .and(dsl::section_name.eq(section_name)),
+            )
             .get_result(&mut self.conn)
             .optional()?;
 
@@ -138,21 +170,21 @@ impl AsmData {
         Ok(())
     }
 
-    pub fn get_literal(&mut self, block_name: &str, literal: &[u8]) -> Result<Literal> {
+    pub fn get_literal(&mut self, block_id: i32, literal: &[u8]) -> Result<Literal> {
         use crate::schema::literals::dsl::literals;
         let literal = literals
-            .find((block_name, literal))
+            .find((block_id, literal))
             .get_result(&mut self.conn)?;
 
         Ok(literal)
     }
 
-    pub fn get_ltorg(&mut self, block_name: &str, offset: usize) -> Result<Ltorg> {
+    pub fn get_ltorg(&mut self, block_id: i32, offset: usize) -> Result<Ltorg> {
         use crate::schema::ltorgs::dsl::{self, ltorgs};
         let ltorg = ltorgs
             .filter(
-                dsl::block_name
-                    .eq(block_name)
+                dsl::block_id
+                    .eq(block_id)
                     .and(dsl::offset.eq(offset as i32)),
             )
             .get_result(&mut self.conn)?;
@@ -160,10 +192,10 @@ impl AsmData {
         Ok(ltorg)
     }
 
-    pub fn get_final_ltorg(&mut self, block_name: &str) -> Result<Option<Ltorg>> {
+    pub fn get_final_ltorg(&mut self, block_id: i32) -> Result<Option<Ltorg>> {
         use crate::schema::ltorgs::dsl::{self, ltorgs};
         let ltorg = ltorgs
-            .filter(dsl::block_name.eq(block_name))
+            .filter(dsl::block_id.eq(block_id))
             .order(dsl::offset.desc())
             .limit(1)
             .get_result(&mut self.conn)
@@ -181,7 +213,7 @@ impl AsmData {
                 .with_context(|| {
                     format!(
                         "updating literal {:?} in block {}",
-                        literal.value, literal.block_name
+                        literal.value, literal.block_id
                     )
                 })?;
         }

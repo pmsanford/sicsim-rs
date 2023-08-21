@@ -40,6 +40,93 @@ pub fn register(r: &str) -> Result<Register> {
         .ok_or_else(|| anyhow::Error::msg(format!("Couldn't find register {}", r)))
 }
 
+struct ControlSectionBuilder {
+    records: Vec<Record>,
+    modifications: Vec<Modification>,
+    base: Option<i32>,
+    current_text: Option<Text>,
+    name: String,
+    start_addr: usize,
+    length: Option<usize>,
+    start_offset: Option<usize>,
+}
+
+impl ControlSectionBuilder {
+    fn new(name: String, start_addr: usize) -> Self {
+        ControlSectionBuilder {
+            records: Vec::new(),
+            modifications: Vec::new(),
+            base: None,
+            current_text: None,
+            name,
+            start_addr,
+            length: None,
+            start_offset: None,
+        }
+    }
+
+    fn set_length(&mut self, length: usize) {
+        self.length = Some(length);
+    }
+
+    fn set_start_offset(&mut self, start_offset: usize) {
+        self.start_offset = Some(start_offset);
+    }
+
+    fn add_instruction(&mut self, offset: usize, mut instruction: Data) {
+        let mut text = self
+            .current_text
+            .take()
+            .unwrap_or_else(|| Text::new(offset));
+        if let Data::Byte(mut bytes) = instruction {
+            while !bytes.is_empty() {
+                let space_remaining = 30 - text.len();
+                if space_remaining < bytes.len() {
+                    let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
+                    let new_bytes = new_text.len();
+                    text.instructions.push(Data::Byte(new_text));
+                    self.records.push(Record::Text(text));
+                    text = Text {
+                        address: offset + new_bytes,
+                        instructions: vec![],
+                    };
+                } else {
+                    break;
+                }
+            }
+
+            instruction = Data::Byte(bytes);
+        } else if text.len() + instruction.length() > 30 {
+            self.records.push(Record::Text(text));
+            text = Text::new(offset);
+        }
+        text.instructions.push(instruction);
+
+        self.current_text = Some(text);
+    }
+
+    fn build(mut self) -> Result<Vec<Record>> {
+        let Some(length) = self.length else { bail!("no length set"); };
+        let header = Record::Header {
+            name: self.name,
+            start: self.start_addr,
+            length,
+        };
+        let mut records = vec![header];
+        records.append(&mut self.records);
+        for modification in self.modifications {
+            records.push(Record::Modification(modification));
+        }
+        if let Some(start_offset) = self.start_offset {
+            records.push(Record::End {
+                first_instruction: start_offset + self.start_addr,
+            });
+        }
+
+        Ok(records)
+    }
+}
+
 pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
     let lines = data.get_lines()?;
 
@@ -60,7 +147,6 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
     let name = start_label.label_name;
 
-    // TODO: does this work with program blocks?
     let length = end.offset;
 
     let mut debug = Sdb::new(&name, start_addr as usize);
@@ -71,79 +157,38 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         debug.add_label(label.label_name, label.offset as u32);
     }
 
-    let mut records = vec![Record::Header {
-        name,
-        start: start_addr as usize,
-        length,
-    }];
+    let mut control_sections = Vec::new();
 
-    let mut modifications = vec![];
-
-    let mut cur_base = None;
-
-    let mut current_text: Option<Text> = None;
+    let mut current_csect = ControlSectionBuilder::new(name.clone(), start_addr as usize);
+    current_csect.set_length(length);
 
     for line in lines.iter().skip(1) {
-        fn add_instruction(
-            current_text: &mut Option<Text>,
-            records: &mut Vec<Record>,
-            offset: usize,
-            mut instruction: Data,
-        ) {
-            let mut text = current_text.take().unwrap_or_else(|| Text::new(offset));
-            if let Data::Byte(mut bytes) = instruction {
-                while !bytes.is_empty() {
-                    let space_remaining = 30 - text.len();
-                    if space_remaining < bytes.len() {
-                        let new_text: Vec<u8> = bytes.drain(..space_remaining).collect();
-                        let new_bytes = new_text.len();
-                        text.instructions.push(Data::Byte(new_text));
-                        records.push(Record::Text(text));
-                        text = Text {
-                            address: offset + new_bytes,
-                            instructions: vec![],
-                        };
-                    } else {
-                        break;
-                    }
-                }
-
-                instruction = Data::Byte(bytes);
-            } else if text.len() + instruction.length() > 30 {
-                records.push(Record::Text(text));
-                text = Text::new(offset);
-            }
-            text.instructions.push(instruction);
-
-            *current_text = Some(text);
-        }
         debug.add_line(line.offset as u32, line.text.clone(), line.line_no);
         match line.directive {
             Directive::Command(cmd) => match cmd {
                 Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
+                Assembler::CSECT => {
+                    //TODO: CSECT instruction should have offset from previous CSECT in pass one
+                    //for this to work
+                    current_csect.set_length(line.offset);
+                    control_sections.push(current_csect);
+                    let name = line.argument.expect_string()?;
+                    current_csect = ControlSectionBuilder::new(name, 0);
+                }
                 Assembler::BASE => {
                     let label_name = line.argument.string()?;
                     let Some(label) = data.get_label(&label_name)? else { bail!("couldn't find label for base"); };
 
-                    cur_base = Some(label.offset);
+                    current_csect.base = Some(label.offset);
                 }
                 Assembler::BYTE => {
                     let bytes = line.argument.literal()?;
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        start_addr as usize + line.offset,
-                        Data::Byte(bytes),
-                    );
+                    current_csect
+                        .add_instruction(start_addr as usize + line.offset, Data::Byte(bytes));
                 }
                 Assembler::LTORG => {
-                    let ltorg = data.get_ltorg(&line.block_name, line.offset)?;
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Byte(ltorg.data),
-                    );
+                    let ltorg = data.get_ltorg(line.block_id, line.offset)?;
+                    current_csect.add_instruction(line.offset, Data::Byte(ltorg.data));
                 }
                 Assembler::WORD => {
                     let Some(ref arg) = line.argument else { bail!("WORD requires an argument"); };
@@ -162,53 +207,39 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         Argument::Expr(_) => bail!("Found EXPR for WORD value"),
                     };
 
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Word(arg as u32),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Word(arg as u32));
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {
                     if matches!(line.directive, Directive::Command(Assembler::END)) {
-                        if let Some(mut final_ltorg) = data.get_final_ltorg("")? {
+                        let start_label = line.argument.expect_string()?;
+                        let start_label = data
+                            .get_label(&start_label)?
+                            .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
+                        current_csect.set_start_offset(start_label.offset as usize);
+
+                        if let Some(mut final_ltorg) = data.get_final_ltorg(0)? {
                             let offset = final_ltorg.offset as usize;
                             let literals = mem::take(&mut final_ltorg.data);
                             if !literals.is_empty() {
-                                add_instruction(
-                                    &mut current_text,
-                                    &mut records,
-                                    offset,
-                                    Data::Byte(literals),
-                                );
+                                current_csect.add_instruction(offset, Data::Byte(literals));
                             }
                         }
                     }
-                    if let Some(text) = current_text.take() {
-                        records.push(Record::Text(text));
+                    if let Some(text) = current_csect.current_text.take() {
+                        current_csect.records.push(Record::Text(text));
                     }
                 }
             },
             Directive::Op(op) => match op {
                 parser::Op::OneByte(opcode) => {
                     let op = Op::OneByte(opcode);
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
                 parser::Op::OneReg(opcode) => {
                     let r1 = register(&line.argument.expect_string()?)?;
 
                     let op = Op::OneReg(OneReg { opcode, r1 });
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
                 parser::Op::TwoReg(opcode) => {
                     let arg_str = line.argument.expect_string()?;
@@ -219,12 +250,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let r2 = register(r2s)?;
 
                     let op = Op::TwoReg(TwoReg { opcode, r1, r2 });
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
                 parser::Op::Shift(opcode) => {
                     let arg_str = line.argument.expect_string()?;
@@ -235,23 +261,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let n = ns.parse::<u8>()? - 1;
 
                     let op = Op::Shift(Shift { opcode, r1, n });
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
                 parser::Op::Svc => {
                     let n = line.argument.expect_number()? as u8;
 
                     let op = Op::Svc(n);
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
                 parser::Op::Variable(opcode) => {
                     let mode = line.address_modifier;
@@ -265,7 +281,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         match argument {
                             Argument::Value(Value::Bytes(b) | Value::Chars(b)) => (
                                 false,
-                                data.get_literal(&line.block_name, b)?
+                                data.get_literal(line.block_id, b)?
                                     .offset
                                     .ok_or_else(|| anyhow!("unaddressed literal in pass two"))?,
                             ),
@@ -282,7 +298,8 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
                     let pc = line.offset as i32 + 3;
                     let pc_disp = target_offset - pc;
-                    let base_disp = cur_base
+                    let base_disp = current_csect
+                        .base
                         .filter(|base| target_offset >= *base)
                         .map(|base| target_offset - base);
 
@@ -319,9 +336,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
                         let op_address = line.offset + start_addr as usize + 1;
 
-                        modifications.push(Modification {
+                        current_csect.modifications.push(Modification {
                             address: op_address,
                             length,
+                            add: true,
+                            symbol: name.clone(),
                         });
                     }
 
@@ -337,36 +356,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         address_flags,
                         address: disp as u32,
                     });
-                    add_instruction(
-                        &mut current_text,
-                        &mut records,
-                        line.offset,
-                        Data::Instruction(op),
-                    );
+                    current_csect.add_instruction(line.offset, Data::Instruction(op));
                 }
             },
         }
     }
 
-    for modification in modifications {
-        records.push(Record::Modification(modification));
-    }
-
-    let last_line = lines.last().expect("last line");
-
-    if last_line.directive != Directive::Command(Assembler::END) {
-        bail!("Expected end directive");
-    }
-
-    let start_label = last_line.argument.expect_string()?;
-
-    let start_label = data
-        .get_label(&start_label)?
-        .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
-
-    records.push(Record::End {
-        first_instruction: (start_label.offset + start_addr) as usize,
-    });
+    let records = current_csect.build()?;
 
     Ok((records, debug))
 }

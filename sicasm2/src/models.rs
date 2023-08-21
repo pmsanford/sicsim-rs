@@ -8,9 +8,9 @@ use diesel::prelude::*;
 #[diesel(primary_key(label_name))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(Line, foreign_key = line_no))]
-#[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
+#[diesel(belongs_to(ControlSection, foreign_key = section_name))]
 pub struct Label {
-    pub block_name: String,
+    pub section_name: String,
     pub line_no: i32,
     pub label_name: String,
     pub offset: i32,
@@ -19,9 +19,9 @@ pub struct Label {
 #[derive(Debug, Identifiable, Associations)]
 #[diesel(primary_key(line_no))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
+#[diesel(belongs_to(ProgramBlock, foreign_key = block_id))]
 pub struct Line {
-    pub block_name: String,
+    pub block_id: i32,
     pub line_no: usize,
     pub directive: Directive,
     pub argument: Option<Argument>,
@@ -36,7 +36,7 @@ pub struct Line {
 use diesel::dsl;
 impl<'insert> Insertable<lines::table> for &'insert Line {
     type Values = <(
-        Option<dsl::Eq<lines::block_name, &'insert String>>,
+        Option<dsl::Eq<lines::block_id, i32>>,
         Option<dsl::Eq<lines::line_no, i32>>,
         Option<dsl::Eq<lines::directive, String>>,
         Option<dsl::Eq<lines::argument, String>>,
@@ -50,7 +50,7 @@ impl<'insert> Insertable<lines::table> for &'insert Line {
 
     fn values(self) -> Self::Values {
         (
-            std::option::Option::Some(lines::block_name.eq(&self.block_name)),
+            std::option::Option::Some(lines::block_id.eq(self.block_id)),
             std::option::Option::Some(lines::line_no.eq(self.line_no as i32)),
             std::option::Option::Some(
                 lines::directive.eq(serde_json::to_string(&self.directive).unwrap()),
@@ -73,7 +73,7 @@ impl<'insert> Insertable<lines::table> for &'insert Line {
 
 impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
     type Row = (
-        String,
+        i32,
         i32,
         String,
         Option<String>,
@@ -87,7 +87,7 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
 
     fn build(row: Self::Row) -> diesel::deserialize::Result<Self> {
         Ok(Self {
-            block_name: row.0,
+            block_id: row.0,
             line_no: row.1.try_into()?,
             directive: serde_json::from_str(&row.2)?,
             argument: row.3.map(|arg| serde_json::from_str(&arg)).transpose()?,
@@ -102,37 +102,66 @@ impl Queryable<lines::SqlType, diesel::sqlite::Sqlite> for Line {
 }
 
 #[derive(Queryable, Debug, Identifiable, Associations, Insertable, Selectable)]
-#[diesel(primary_key(block_name, value))]
+#[diesel(primary_key(block_id, value))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
+#[diesel(belongs_to(ProgramBlock, foreign_key = block_id))]
 pub struct Literal {
-    pub block_name: String,
+    pub block_id: i32,
     pub offset: Option<i32>,
     pub value: Vec<u8>,
 }
 
 #[derive(Queryable, Debug, Identifiable, Associations, Insertable, Selectable)]
-#[diesel(primary_key(block_name, offset))]
+#[diesel(primary_key(block_id, offset))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-#[diesel(belongs_to(ProgramBlock, foreign_key = block_name))]
+#[diesel(belongs_to(ProgramBlock, foreign_key = block_id))]
 pub struct Ltorg {
-    pub block_name: String,
+    pub block_id: i32,
     pub offset: i32,
     pub data: Vec<u8>,
 }
 
-#[derive(Queryable, Debug, Identifiable, Selectable, Insertable)]
-#[diesel(primary_key(block_name))]
+#[derive(Queryable, Debug, Identifiable, Selectable)]
+#[diesel(primary_key(block_id))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ProgramBlock {
+    pub block_id: i32,
+    pub section_name: String,
     pub block_name: String,
     pub current_offset: i32,
 }
 
-impl ProgramBlock {
-    pub fn new(name: String) -> Self {
+#[derive(Debug, Insertable)]
+#[diesel(primary_key(block_id))]
+#[diesel(table_name = program_blocks)]
+pub struct ProgramBlockInsert {
+    pub section_name: String,
+    pub block_name: String,
+    pub current_offset: i32,
+}
+
+impl ProgramBlockInsert {
+    pub fn new(section: String, name: String) -> Self {
         Self {
+            section_name: section,
             block_name: name,
+            current_offset: 0,
+        }
+    }
+}
+
+#[derive(Queryable, Debug, Identifiable, Selectable, Insertable)]
+#[diesel(primary_key(section_name))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ControlSection {
+    pub section_name: String,
+    pub current_offset: i32,
+}
+
+impl ControlSection {
+    pub fn new(name: String) -> Self {
+        ControlSection {
+            section_name: name,
             current_offset: 0,
         }
     }

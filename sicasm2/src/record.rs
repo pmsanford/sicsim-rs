@@ -44,6 +44,24 @@ impl Text {
 pub struct Modification {
     pub address: usize,
     pub length: usize,
+    pub add: bool,
+    pub symbol: String,
+}
+
+#[derive(Debug)]
+pub struct ExtDef {
+    pub name: String,
+    pub offset: usize,
+}
+
+#[derive(Debug)]
+pub struct Define {
+    pub definitions: Vec<ExtDef>,
+}
+
+#[derive(Debug)]
+pub struct Refer {
+    pub references: Vec<String>,
 }
 
 #[derive(Debug)]

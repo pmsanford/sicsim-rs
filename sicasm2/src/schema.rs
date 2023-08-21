@@ -1,8 +1,15 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    control_sections (section_name) {
+        section_name -> Text,
+        current_offset -> Integer,
+    }
+}
+
+diesel::table! {
     labels (label_name) {
-        block_name -> Text,
+        section_name -> Text,
         line_no -> Integer,
         label_name -> Text,
         offset -> Integer,
@@ -11,7 +18,7 @@ diesel::table! {
 
 diesel::table! {
     lines (line_no) {
-        block_name -> Text,
+        block_id -> Integer,
         line_no -> Integer,
         directive -> Text,
         argument -> Nullable<Text>,
@@ -25,32 +32,42 @@ diesel::table! {
 }
 
 diesel::table! {
-    literals (block_name, value) {
-        block_name -> Text,
+    literals (block_id, value) {
+        block_id -> Integer,
         offset -> Nullable<Integer>,
         value -> Binary,
     }
 }
 
 diesel::table! {
-    ltorgs (block_name, offset) {
-        block_name -> Text,
+    ltorgs (block_id, offset) {
+        block_id -> Integer,
         offset -> Integer,
         data -> Binary,
     }
 }
 
 diesel::table! {
-    program_blocks (block_name) {
+    program_blocks (block_id) {
+        block_id -> Integer,
         block_name -> Text,
+        section_name -> Text,
         current_offset -> Integer,
     }
 }
 
+diesel::joinable!(labels -> control_sections (section_name));
 diesel::joinable!(labels -> lines (line_no));
-diesel::joinable!(labels -> program_blocks (block_name));
-diesel::joinable!(lines -> program_blocks (block_name));
-diesel::joinable!(literals -> program_blocks (block_name));
-diesel::joinable!(ltorgs -> program_blocks (block_name));
+diesel::joinable!(lines -> program_blocks (block_id));
+diesel::joinable!(literals -> program_blocks (block_id));
+diesel::joinable!(ltorgs -> program_blocks (block_id));
+diesel::joinable!(program_blocks -> control_sections (section_name));
 
-diesel::allow_tables_to_appear_in_same_query!(labels, lines, literals, ltorgs, program_blocks,);
+diesel::allow_tables_to_appear_in_same_query!(
+    control_sections,
+    labels,
+    lines,
+    literals,
+    ltorgs,
+    program_blocks,
+);

@@ -1,4 +1,4 @@
-use crate::models::{Line, Literal, ProgramBlock};
+use crate::models::{ControlSection, Line, Literal, ProgramBlock};
 use crate::parser::{parse_program, AssemblyLine, Expr, ExprOp, ExprTarget, ParserLine};
 use anyhow::{anyhow, bail, Result};
 
@@ -16,12 +16,15 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
     let mut data = AsmData::new_from_env()?;
 
-    let mut current_block = data.add_program_block("".into())?;
+    let mut current_section = data.add_control_section("".into())?;
+
+    let mut current_block =
+        data.add_program_block(current_section.section_name.clone(), "".into())?;
 
     for parsed_line in parsed.iter() {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
 
-        current_block = handle_use(program_line, current_block, &mut data)?;
+        current_block = handle_use(program_line, &current_section, current_block, &mut data)?;
 
         let size = if program_line.directive == Directive::Command(Assembler::LTORG) {
             create_ltorg(&current_block, &mut data)?
@@ -68,7 +71,7 @@ fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usiz
     let size = bytes.len();
 
     let ltorg = Ltorg {
-        block_name: current_block.block_name.clone(),
+        block_id: current_block.block_id,
         offset: current_block.current_offset,
         data: bytes,
     };
@@ -86,7 +89,7 @@ fn new_line(
     size: usize,
 ) -> Line {
     Line {
-        block_name: current_block.block_name.clone(),
+        block_id: current_block.block_id.clone(),
         line_no: parsed_line.line_no,
         directive: program_line.directive,
         argument: program_line.argument.clone(),
@@ -111,7 +114,7 @@ fn handle_literal(
     if let Some(Argument::Value(Value::Bytes(ref v) | Value::Chars(ref v))) = program_line.argument
     {
         let literal = Literal {
-            block_name: current_block.block_name.clone(),
+            block_id: current_block.block_id.clone(),
             offset: None,
             value: v.clone(),
         };
@@ -144,7 +147,7 @@ fn handle_label(
 
         let label = Label {
             offset,
-            block_name: current_block.block_name.clone(),
+            section_name: current_block.section_name.clone(),
             line_no: line_no as i32,
             label_name: label.0.clone(),
         };
@@ -155,8 +158,17 @@ fn handle_label(
     Ok(())
 }
 
+fn handle_csect(
+    program_line: &AssemblyLine,
+    current_section: &ControlSection,
+    data: &mut AsmData,
+) -> Result<(ControlSection, ProgramBlock)> {
+    todo!()
+}
+
 fn handle_use(
     program_line: &AssemblyLine,
+    current_section: &ControlSection,
     current_block: ProgramBlock,
     data: &mut AsmData,
 ) -> Result<ProgramBlock> {
@@ -168,13 +180,15 @@ fn handle_use(
                 "".into()
             };
 
-        if data.get_program_block(&block_name)?.is_none() {
-            data.add_program_block(block_name.clone())?;
-        }
-
-        return data
-            .get_program_block(&block_name)?
-            .ok_or_else(|| anyhow!("couldn't find program block {}", block_name));
+        return Ok(
+            if let Some(block) =
+                data.get_program_block_by_name(&current_section.section_name, &block_name)?
+            {
+                block
+            } else {
+                data.add_program_block(current_section.section_name.clone(), block_name.clone())?
+            },
+        );
     }
 
     Ok(current_block)
@@ -321,11 +335,11 @@ RES     RESW    1
         let lines = data.get_lines()?;
 
         // Block membership
-        assert_eq!(lines[0].block_name, "");
-        assert_eq!(lines[1].block_name, "");
-        assert_eq!(lines[3].block_name, "BLK2");
-        assert_eq!(lines[4].block_name, "BLK2");
-        assert_eq!(lines[6].block_name, "");
+        assert_eq!(lines[0].block_id, 0);
+        assert_eq!(lines[1].block_id, 0);
+        assert_eq!(lines[3].block_id, 1);
+        assert_eq!(lines[4].block_id, 1);
+        assert_eq!(lines[6].block_id, 0);
 
         // Block offsets
         assert_eq!(lines[1].offset, 0);

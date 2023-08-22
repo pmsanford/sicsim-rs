@@ -1,5 +1,5 @@
 PROGIN  START   30
-OLDPC   EQU     130+9
+OLDPC   EQU     304+9
         LDT     OLDPC
 DONE    J       DONE
         END     PROGIN

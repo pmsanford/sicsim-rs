@@ -24,6 +24,8 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
     let ProgramLine::Assembly(ref start_line) = first_line.data else { bail!("impossible"); };
 
     let start_label = start_line.label.as_ref().expect("program name").0.clone();
+    let start_addr = start_line.argument.as_string()?;
+    let start_addr = i32::from_str_radix(&start_addr, 16)?;
 
     let mut current_section = data.add_control_section(start_label)?;
 

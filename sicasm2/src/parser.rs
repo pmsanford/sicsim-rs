@@ -500,6 +500,7 @@ pub fn parse_program(program: &str) -> Result<Vec<ParserLine>> {
 pub trait AsmArg {
     fn expect_string(&self) -> Result<String>;
     fn expect_number(&self) -> Result<u32>;
+    fn as_string(&self) -> Result<String>;
 }
 
 impl AsmArg for Option<Argument> {
@@ -513,6 +514,16 @@ impl AsmArg for Option<Argument> {
         let Some(Argument::Value(Value::Number(i))) = self else { bail!("expected string argument"); };
 
         Ok(*i as u32)
+    }
+
+    fn as_string(&self) -> Result<String> {
+        let Some(Argument::Value(v)) = self else { bail!("expected value argument"); };
+
+        Ok(match v {
+            Value::Number(n) => n.to_string(),
+            Value::String(s) => s.0.clone(),
+            _ => bail!("expected number or string")
+        })
     }
 }
 

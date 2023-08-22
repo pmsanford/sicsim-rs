@@ -143,11 +143,12 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
     let Some(Argument::Value(Value::Number(start_addr))) = start.argument else { bail!("expected start address"); };
 
+    // Hacky, but start addr (and end addr) are hex, the rest of the source lines are decimal
+    let start_addr = i32::from_str_radix(&start_addr.to_string(), 16)?;
+
     let Some(start_label) = data.get_label_by_line(start.line_no)? else { bail!("expected program name"); };
 
     let name = start_label.label_name;
-
-    let length = end.offset;
 
     let mut debug = Sdb::new(&name, start_addr as usize);
 
@@ -160,7 +161,6 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
     let mut control_sections = Vec::new();
 
     let mut current_csect = ControlSectionBuilder::new(name.clone(), start_addr as usize);
-    current_csect.set_length(length);
 
     for line in lines.iter().skip(1) {
         debug.add_line(line.offset as u32, line.text.clone(), line.line_no);
@@ -218,6 +218,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             .get_label(&start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
                         current_csect.set_start_offset(start_label.offset as usize);
+
+                        let length = data.get_section_length(&current_csect.name)?;
+                        current_csect.set_length((length - start_label.offset) as usize);
 
                         if let Some(mut final_ltorg) = data.get_final_ltorg(0)? {
                             let offset = final_ltorg.offset as usize;
@@ -278,7 +281,6 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     {
                         (true, 0)
                     } else {
-                        println!("Assembling variable op {:?}", line);
                         let Some(ref argument) = line.argument else { bail!("No argument for variable op {opcode}"); };
 
                         match argument {

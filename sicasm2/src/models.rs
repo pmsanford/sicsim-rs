@@ -145,7 +145,7 @@ impl ProgramBlockInsert {
         Self {
             section_name: section,
             block_name: name,
-            current_offset: 0,
+            current_offset: 0
         }
     }
 }

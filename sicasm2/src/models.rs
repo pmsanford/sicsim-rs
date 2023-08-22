@@ -129,6 +129,17 @@ pub struct ProgramBlock {
     pub section_name: String,
     pub block_name: String,
     pub current_offset: i32,
+    pub start_offset: Option<i32>,
+}
+
+impl ProgramBlock {
+    pub fn calc_address(&self, offset: usize) -> usize {
+        if let Some(start) = self.start_offset {
+            start as usize + offset
+        } else {
+            offset
+        }
+    }
 }
 
 #[derive(Debug, Insertable)]
@@ -145,7 +156,7 @@ impl ProgramBlockInsert {
         Self {
             section_name: section,
             block_name: name,
-            current_offset: 0
+            current_offset: 0,
         }
     }
 }

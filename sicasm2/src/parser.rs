@@ -522,7 +522,7 @@ impl AsmArg for Option<Argument> {
         Ok(match v {
             Value::Number(n) => n.to_string(),
             Value::String(s) => s.0.clone(),
-            _ => bail!("expected number or string")
+            _ => bail!("expected number or string"),
         })
     }
 }

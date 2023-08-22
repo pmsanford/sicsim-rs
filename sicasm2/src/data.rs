@@ -88,10 +88,16 @@ impl AsmData {
         Ok(block)
     }
 
+    pub fn get_control_sections(&mut self) -> Result<Vec<ControlSection>> {
+        use crate::schema::control_sections::dsl::control_sections;
+        Ok(control_sections.get_results(&mut self.conn)?)
+    }
+
     pub fn get_program_blocks(&mut self, section_name: &str) -> Result<Vec<ProgramBlock>> {
         use crate::schema::program_blocks::dsl::{self, program_blocks};
         let block = program_blocks
             .filter(dsl::section_name.eq(section_name))
+            .order(dsl::block_id)
             .get_results(&mut self.conn)?;
 
         Ok(block)
@@ -112,6 +118,16 @@ impl AsmData {
         let label = labels.find(name).get_result(&mut self.conn).optional()?;
 
         Ok(label)
+    }
+
+    pub fn set_start_location(&mut self, block: &ProgramBlock) -> Result<()> {
+        use crate::schema::program_blocks::dsl::start_offset;
+        diesel::update(block)
+            .set(start_offset.eq(block.start_offset))
+            .execute(&mut self.conn)
+            .with_context(|| format!("updating program block {}", block.block_name))?;
+
+        Ok(())
     }
 
     pub fn set_current_location(&mut self, block: &ProgramBlock) -> Result<()> {

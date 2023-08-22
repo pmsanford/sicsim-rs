@@ -3,6 +3,7 @@ CREATE TABLE program_blocks (
   block_name text not null,
   section_name text not null,
   current_offset integer not null,
+  start_offset integer null,
   FOREIGN KEY(section_name) REFERENCES control_sections(section_name),
   UNIQUE(section_name, block_name)
 );

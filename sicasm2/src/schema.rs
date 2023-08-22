@@ -52,6 +52,7 @@ diesel::table! {
         block_name -> Text,
         section_name -> Text,
         current_offset -> Integer,
+        start_offset -> Nullable<Integer>,
     }
 }
 

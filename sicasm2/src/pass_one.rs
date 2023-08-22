@@ -34,6 +34,10 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
         current_section.section_name.clone(),
     )?;
 
+    current_block.start_offset = Some(start_addr);
+
+    data.set_start_location(&current_block)?;
+
     for parsed_line in parsed.iter() {
         let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
         {
@@ -66,6 +70,23 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
     for block in data.get_program_blocks(&current_section.section_name)? {
         create_ltorg(&block, &mut data)?;
+    }
+
+    for section in data.get_control_sections()? {
+        let mut blocks = data.get_program_blocks(&section.section_name)?;
+        let Some(first) = blocks.get(0) else { continue; };
+        if first.start_offset.is_none() {
+            continue;
+        }
+
+        let offsets = blocks
+            .iter()
+            .map(|block| block.current_offset)
+            .collect::<Vec<_>>();
+
+        for (idx, block) in blocks.iter_mut().enumerate().skip(1) {
+            block.start_offset = Some(offsets[idx - 1]);
+        }
     }
 
     Ok(data)

@@ -163,7 +163,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
     let mut current_csect = ControlSectionBuilder::new(name.clone(), start_addr as usize);
 
     for line in lines.iter().skip(1) {
-        debug.add_line(line.offset as u32, line.text.clone(), line.line_no);
+        let block = data
+            .get_program_block(line.block_id)?
+            .expect("block for line");
+        let addr = block.calc_address(line.offset);
+        debug.add_line(addr as u32, line.text.clone(), line.line_no);
         match line.directive {
             Directive::Command(cmd) => match cmd {
                 Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
@@ -183,12 +187,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                 }
                 Assembler::BYTE => {
                     let bytes = line.argument.literal()?;
-                    current_csect
-                        .add_instruction(start_addr as usize + line.offset, Data::Byte(bytes));
+                    current_csect.add_instruction(addr, Data::Byte(bytes));
                 }
                 Assembler::LTORG => {
                     let ltorg = data.get_ltorg(line.block_id, line.offset)?;
-                    current_csect.add_instruction(line.offset, Data::Byte(ltorg.data));
+                    current_csect.add_instruction(addr, Data::Byte(ltorg.data));
                 }
                 Assembler::WORD => {
                     let Some(ref arg) = line.argument else { bail!("WORD requires an argument"); };
@@ -209,7 +212,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         }
                     };
 
-                    current_csect.add_instruction(line.offset, Data::Word(arg as u32));
+                    current_csect.add_instruction(addr, Data::Word(arg as u32));
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {
                     if matches!(line.directive, Directive::Command(Assembler::END)) {
@@ -238,13 +241,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
             Directive::Op(op) => match op {
                 parser::Op::OneByte(opcode) => {
                     let op = Op::OneByte(opcode);
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::OneReg(opcode) => {
                     let r1 = register(&line.argument.expect_string()?)?;
 
                     let op = Op::OneReg(OneReg { opcode, r1 });
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::TwoReg(opcode) => {
                     let arg_str = line.argument.expect_string()?;
@@ -255,7 +258,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let r2 = register(r2s)?;
 
                     let op = Op::TwoReg(TwoReg { opcode, r1, r2 });
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Shift(opcode) => {
                     let arg_str = line.argument.expect_string()?;
@@ -266,13 +269,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let n = ns.parse::<u8>()? - 1;
 
                     let op = Op::Shift(Shift { opcode, r1, n });
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Svc => {
                     let n = line.argument.expect_number()? as u8;
 
                     let op = Op::Svc(n);
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Variable(opcode) => {
                     let mode = line.address_modifier;
@@ -303,7 +306,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         }
                     };
 
-                    let pc = line.offset as i32 + 3;
+                    let pc = addr as i32 + 3;
                     let pc_disp = target_offset - pc;
                     let base_disp = current_csect
                         .base
@@ -341,7 +344,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             3
                         };
 
-                        let op_address = line.offset + start_addr as usize + 1;
+                        let op_address = addr + 1;
 
                         current_csect.modifications.push(Modification {
                             address: op_address,
@@ -363,7 +366,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         address_flags,
                         address: disp as u32,
                     });
-                    current_csect.add_instruction(line.offset, Data::Instruction(op));
+                    current_csect.add_instruction(addr, Data::Instruction(op));
                 }
             },
         }

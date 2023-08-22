@@ -30,6 +30,8 @@ pub enum Assembler {
     BASE,
     BYTE,
     CSECT,
+    EXTDEF,
+    EXTREF,
     LTORG,
     ORG,
     EQU,
@@ -397,6 +399,8 @@ impl AssemblyLine {
                 | Assembler::EQU
                 | Assembler::USE
                 | Assembler::END
+                | Assembler::EXTDEF
+                | Assembler::EXTREF
                 | Assembler::CSECT => 0,
                 Assembler::WORD => 3,
                 Assembler::RESW => match &self.argument {

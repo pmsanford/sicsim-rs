@@ -5,7 +5,7 @@ use crate::{
 use diesel::prelude::*;
 
 #[derive(Queryable, Debug, Identifiable, Associations, Insertable)]
-#[diesel(primary_key(label_name))]
+#[diesel(primary_key(section_name, label_name))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 #[diesel(belongs_to(Line, foreign_key = line_no))]
 #[diesel(belongs_to(ControlSection, foreign_key = section_name))]
@@ -143,8 +143,8 @@ impl ProgramBlock {
 }
 
 #[derive(Debug, Insertable)]
-#[diesel(primary_key(block_id))]
 #[diesel(table_name = program_blocks)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ProgramBlockInsert {
     pub section_name: String,
     pub block_name: String,

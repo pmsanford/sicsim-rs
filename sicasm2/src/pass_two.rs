@@ -170,7 +170,12 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         debug.add_line(addr as u32, line.text.clone(), line.line_no);
         match line.directive {
             Directive::Command(cmd) => match cmd {
-                Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
+                Assembler::START
+                | Assembler::EQU
+                | Assembler::ORG
+                | Assembler::USE
+                | Assembler::EXTDEF
+                | Assembler::EXTREF => {}
                 Assembler::CSECT => {
                     // TODO: Is the length this simple?
                     let length = data.get_section_length(&current_csect.name)?;
@@ -181,7 +186,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                 }
                 Assembler::BASE => {
                     let label_name = line.argument.string()?;
-                    let Some(label) = data.get_label(&label_name)? else { bail!("couldn't find label for base"); };
+                    let Some(label) = data.get_label(&current_csect.name, &label_name)? else { bail!("couldn't find label for base"); };
 
                     current_csect.base = Some(label.offset);
                 }
@@ -202,7 +207,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             }
                             Value::Number(i) => *i,
                             Value::String(s) => {
-                                data.get_label(&s.0)?
+                                data.get_label(&current_csect.name, &s.0)?
                                     .ok_or_else(|| anyhow!(r"Couldn't find label {}", s.0))?
                                     .offset
                             }
@@ -218,7 +223,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     if matches!(line.directive, Directive::Command(Assembler::END)) {
                         let start_label = line.argument.expect_string()?;
                         let start_label = data
-                            .get_label(&start_label)?
+                            .get_label(&current_csect.name, &start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
                         current_csect.set_start_offset(start_label.offset as usize);
 
@@ -296,7 +301,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             Argument::Value(Value::Number(i)) => (true, *i),
                             Argument::Value(Value::String(s)) => (
                                 false,
-                                data.get_label(&s.0)?
+                                data.get_label(&current_csect.name, &s.0)?
                                     .ok_or_else(|| anyhow!("couldn't find label {}", s.0))?
                                     .offset,
                             ),

@@ -51,10 +51,16 @@ impl AsmData {
         section_name: String,
         name: String,
     ) -> Result<ProgramBlock> {
-        let new_block = diesel::insert_into(program_blocks::table)
-            .values(&ProgramBlockInsert::new(section_name, name.clone()))
+        use crate::schema::program_blocks::dsl;
+        let new_block: ProgramBlock = diesel::insert_into(program_blocks::table)
+            .values(ProgramBlockInsert::new(section_name, name.clone()))
             .get_result(&mut self.conn)
             .with_context(|| format!("inserting program block {name}"))?;
+
+        let new_block = dsl::program_blocks
+            .find(new_block.block_id)
+            .get_result(&mut self.conn)
+            .with_context(|| format!("retrieving block {}", new_block.block_id))?;
 
         Ok(new_block)
     }
@@ -113,9 +119,12 @@ impl AsmData {
         Ok(label)
     }
 
-    pub fn get_label(&mut self, name: &str) -> Result<Option<Label>> {
+    pub fn get_label(&mut self, section_name: &str, name: &str) -> Result<Option<Label>> {
         use crate::schema::labels::dsl::labels;
-        let label = labels.find(name).get_result(&mut self.conn).optional()?;
+        let label = labels
+            .find((section_name, name))
+            .get_result(&mut self.conn)
+            .optional()?;
 
         Ok(label)
     }

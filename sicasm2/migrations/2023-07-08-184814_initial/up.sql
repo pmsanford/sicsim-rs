@@ -1,7 +1,7 @@
 CREATE TABLE program_blocks (
   block_id integer primary key not null,
-  block_name text not null,
   section_name text not null,
+  block_name text not null,
   current_offset integer not null,
   start_offset integer null,
   FOREIGN KEY(section_name) REFERENCES control_sections(section_name),
@@ -31,7 +31,7 @@ CREATE TABLE labels (
   offset integer not null,
   FOREIGN KEY(section_name) REFERENCES control_sections(section_name),
   FOREIGN KEY(line_no) REFERENCES lines(line_no),
-  PRIMARY KEY (label_name)
+  PRIMARY KEY (section_name, label_name)
 );
 
 CREATE TABLE lines (

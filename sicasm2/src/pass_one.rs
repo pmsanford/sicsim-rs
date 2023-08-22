@@ -29,10 +29,8 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
     let mut current_section = data.add_control_section(start_label)?;
 
-    let mut current_block = data.add_program_block(
-        current_section.section_name.clone(),
-        current_section.section_name.clone(),
-    )?;
+    let mut current_block =
+        data.add_program_block(current_section.section_name.clone(), "".to_owned())?;
 
     current_block.start_offset = Some(start_addr);
 
@@ -180,8 +178,8 @@ fn handle_label(
                 .as_ref()
                 .ok_or_else(|| anyhow!("expected argument for equ"))?;
             match arg {
-                Argument::Value(v) => value_for_expr(v, data)?,
-                Argument::Expr(e) => eval_expr(e, data)?,
+                Argument::Value(v) => value_for_expr(&current_block.section_name, v, data)?,
+                Argument::Expr(e) => eval_expr(&current_block.section_name, e, data)?,
                 Argument::ExprCurrentOffset => current_block.current_offset,
             }
         } else {
@@ -214,7 +212,12 @@ fn handle_csect(
             create_ltorg(&block, data)?;
         }
 
-        let section_name = program_line.argument.expect_string()?;
+        let section_name = program_line
+            .label
+            .as_ref()
+            .ok_or_else(|| anyhow!("expected label for CSECT"))?
+            .0
+            .clone();
 
         let new_section = data.create_control_section(&section_name)?;
         let new_block = data.add_program_block(section_name, "".into())?;
@@ -253,12 +256,12 @@ fn handle_use(
     Ok(current_block)
 }
 
-fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
+fn value_for_expr(section_name: &str, value: &Value, data: &mut AsmData) -> Result<i32> {
     let v = match value {
         Value::Bytes(_) | Value::Chars(_) => bail!("cannot convert bytes/chars to i32"),
         Value::Number(n) => *n,
         Value::String(label) => {
-            data.get_label(&label.0)?
+            data.get_label(section_name, &label.0)?
                 .ok_or_else(|| anyhow!("label {} doesn't exist", label.0))?
                 .offset
         }
@@ -267,12 +270,12 @@ fn value_for_expr(value: &Value, data: &mut AsmData) -> Result<i32> {
     Ok(v)
 }
 
-fn eval_expr(expr: &Expr, data: &mut AsmData) -> Result<i32> {
-    let lhs = value_for_expr(&expr.value, data)?;
+fn eval_expr(section_name: &str, expr: &Expr, data: &mut AsmData) -> Result<i32> {
+    let lhs = value_for_expr(section_name, &expr.value, data)?;
 
     let rhs = match &expr.target {
-        ExprTarget::Argument(v) => value_for_expr(v, data)?,
-        ExprTarget::Expr(e) => eval_expr(e, data)?,
+        ExprTarget::Argument(v) => value_for_expr(section_name, v, data)?,
+        ExprTarget::Expr(e) => eval_expr(section_name, e, data)?,
     };
 
     let result = match expr.op {
@@ -327,13 +330,13 @@ LBL2    LDA     X'0F'   . 3
         assert_eq!(lines[6].offset, 17);
 
         // Labels
-        let start_label = data.get_label("TST")?.expect("start label");
+        let start_label = data.get_label("TST", "TST")?.expect("start label");
         assert_eq!(start_label.offset, 0);
 
-        let one = data.get_label("LBL1")?.expect("lbl1");
+        let one = data.get_label("TST", "LBL1")?.expect("lbl1");
         assert_eq!(one.offset, 0);
 
-        let two = data.get_label("LBL2")?.expect("lbl2");
+        let two = data.get_label("TST", "LBL2")?.expect("lbl2");
         assert_eq!(two.offset, 3);
 
         let ltorg_list: Vec<Ltorg> = ltorgs::dsl::ltorgs.get_results(&mut data.conn)?;
@@ -422,13 +425,13 @@ LB3     EQU     LB2*LB1
 
         let mut data = run_pass_one(program)?;
 
-        let lb1 = data.get_label("LB1")?.expect("lb1");
+        let lb1 = data.get_label("TST", "LB1")?.expect("lb1");
         assert_eq!(lb1.offset, 5);
 
-        let lb2 = data.get_label("LB2")?.expect("lb2");
+        let lb2 = data.get_label("TST", "LB2")?.expect("lb2");
         assert_eq!(lb2.offset, 10);
 
-        let lb3 = data.get_label("LB3")?.expect("lb3");
+        let lb3 = data.get_label("TST", "LB3")?.expect("lb3");
         assert_eq!(lb3.offset, 50);
 
         Ok(())

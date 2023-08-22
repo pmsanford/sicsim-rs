@@ -7,7 +7,7 @@ diesel::table! {
 }
 
 diesel::table! {
-    labels (label_name) {
+    labels (section_name, label_name) {
         section_name -> Text,
         line_no -> Integer,
         label_name -> Text,
@@ -49,8 +49,8 @@ diesel::table! {
 diesel::table! {
     program_blocks (block_id) {
         block_id -> Integer,
-        block_name -> Text,
         section_name -> Text,
+        block_name -> Text,
         current_offset -> Integer,
         start_offset -> Nullable<Integer>,
     }

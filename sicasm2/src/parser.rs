@@ -8,11 +8,11 @@ use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp, SVC};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until1, take_while1},
-    character::complete::{alpha1, alphanumeric0, anychar, digit1, satisfy, space1},
+    character::complete::{alpha1, alphanumeric0, anychar, digit1, space1},
     combinator::{all_consuming, map, map_parser, map_res, opt, recognize},
     error::ErrorKind,
-    multi::{many0, many1},
-    sequence::{delimited, pair, preceded, separated_pair, tuple},
+    multi::{fold_many1, many0, many1},
+    sequence::{delimited, pair, preceded, tuple},
     IResult,
 };
 use strum::EnumString;
@@ -261,6 +261,7 @@ pub enum Value {
     Chars(Vec<u8>),
     Number(i32),
     String(Label),
+    List(Vec<String>),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -287,6 +288,35 @@ impl Arguments for Option<Argument> {
 
         Ok(v.clone())
     }
+}
+
+fn list_item(i: &str) -> IResult<&str, String> {
+    let (i, s) = alpha1(i)?;
+    let (i, _) = tag(",")(i)?;
+
+    Ok((i, s.to_owned()))
+}
+
+fn comma_list(i: &str) -> IResult<&str, Vec<String>> {
+    let (i, mut items) = fold_many1(list_item, Vec::new, |mut acc: Vec<_>, item| {
+        acc.push(item);
+        acc
+    })(i)?;
+    let (i, last) = alpha1(i)?;
+    if items.len() == 1 {
+        if let Some(last) = last.chars().next() {
+            if last == 'x' || last == 'X' {
+                return Err(nom::Err::Error(nom::error::Error::new(
+                    i,
+                    nom::error::ErrorKind::Fail,
+                )));
+            }
+        }
+    }
+
+    items.push(last.to_owned());
+
+    Ok((i, items))
 }
 
 pub fn argument(i: &str) -> IResult<&str, Argument> {
@@ -340,10 +370,7 @@ pub fn value(i: &str) -> IResult<&str, Value> {
             let number = g.parse::<i32>()?;
             Ok::<Value, <i32 as FromStr>::Err>(Value::Number(number))
         }),
-        map(
-            recognize(separated_pair(alpha1, tag(","), satisfy(|c| c != 'X'))),
-            |g: &str| Value::String(Label(g.into())),
-        ),
+        map(comma_list, Value::List),
         map(recognize(pair(alpha1, alphanumeric0)), |g: &str| {
             Value::String(Label(g.into()))
         }),
@@ -375,7 +402,6 @@ pub struct AssemblyLine {
     pub directive: Directive,
     pub argument: Option<Argument>,
     pub address_modifier: AddressModifier,
-    pub indexed: bool,
 }
 
 impl AssemblyLine {
@@ -428,19 +454,15 @@ pub fn asm_line(i: &str) -> IResult<&str, AssemblyLine> {
     let (i, (label, (extended, directive), arg_part, _comment)) = tuple((
         opt(label),
         preceded(space1, pair(map(opt(tag("+")), |e| e.is_some()), directive)),
-        opt(pair(
-            preceded(space1, pair(address_modifier, argument)),
-            map(opt(tag(",X")), |o| o.is_some()),
-        )),
+        opt(preceded(space1, pair(address_modifier, argument))),
         opt(preceded(space1, preceded(tag("."), many0(anychar)))),
     ))(i)?;
 
-    let ((address_modifier, argument), indexed) =
-        if let Some(((address_modifier, argument), indexed)) = arg_part {
-            ((address_modifier, Some(argument)), indexed)
-        } else {
-            ((AddressModifier::Unmodified, None), false)
-        };
+    let (address_modifier, argument) = if let Some((address_modifier, argument)) = arg_part {
+        (address_modifier, Some(argument))
+    } else {
+        (AddressModifier::Unmodified, None)
+    };
 
     Ok((
         i,
@@ -450,7 +472,6 @@ pub fn asm_line(i: &str) -> IResult<&str, AssemblyLine> {
             directive,
             argument,
             address_modifier,
-            indexed,
         },
     ))
 }
@@ -504,6 +525,7 @@ pub fn parse_program(program: &str) -> Result<Vec<ParserLine>> {
 pub trait AsmArg {
     fn expect_string(&self) -> Result<String>;
     fn expect_number(&self) -> Result<u32>;
+    fn expect_list(&self) -> Result<Vec<String>>;
     fn as_string(&self) -> Result<String>;
 }
 
@@ -518,6 +540,11 @@ impl AsmArg for Option<Argument> {
         let Some(Argument::Value(Value::Number(i))) = self else { bail!("expected string argument"); };
 
         Ok(*i as u32)
+    }
+    fn expect_list(&self) -> Result<Vec<String>> {
+        let Some(Argument::Value(Value::List(l))) = self else { bail!("expected list argument"); };
+
+        Ok(l.clone())
     }
 
     fn as_string(&self) -> Result<String> {

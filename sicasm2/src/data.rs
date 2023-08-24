@@ -280,13 +280,29 @@ impl AsmData {
             .sum())
     }
 
-    pub fn create_control_section(&mut self, name: &str) -> Result<ControlSection> {
-        let csect = ControlSection {
-            section_name: name.to_owned(),
-        };
+    pub fn create_control_section(&mut self, section_name: String) -> Result<ControlSection> {
+        let csect = ControlSection { section_name };
 
         Ok(diesel::insert_into(control_sections::table)
             .values(csect)
+            .get_result(&mut self.conn)?)
+    }
+
+    pub fn add_extref(&mut self, section_name: String, symbol_name: String) -> Result<Extref> {
+        Ok(diesel::insert_into(extrefs::table)
+            .values(Extref {
+                section_name,
+                symbol_name,
+            })
+            .get_result(&mut self.conn)?)
+    }
+
+    pub fn add_extdef(&mut self, section_name: String, symbol_name: String) -> Result<Extdef> {
+        Ok(diesel::insert_into(extdefs::table)
+            .values(Extdef {
+                section_name,
+                symbol_name,
+            })
             .get_result(&mut self.conn)?)
     }
 }

@@ -51,3 +51,17 @@ CREATE TABLE lines (
 CREATE TABLE control_sections (
   section_name text primary key not null
 );
+
+CREATE TABLE extdefs (
+  section_name text not null,
+  symbol_name text not null,
+  PRIMARY KEY(section_name, symbol_name),
+  FOREIGN KEY(section_name) REFERENCES control_sections(section_name)
+);
+
+CREATE TABLE extrefs (
+  section_name text not null,
+  symbol_name text not null,
+  PRIMARY KEY(section_name, symbol_name),
+  FOREIGN KEY(section_name) REFERENCES control_sections(section_name)
+);

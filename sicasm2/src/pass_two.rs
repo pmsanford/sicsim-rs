@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem, sync::OnceLock};
 use crate::data::AsmData;
 use crate::parser::{self, Argument, Arguments, Assembler, Directive, Value};
 use crate::record::{Data, Record, Text};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use libsic::xe::op::{
     AddressFlags, AddressMode, AddressRelativeTo, OneReg, Op, Register, Shift, TwoReg, Variable,
     VariableOp,
@@ -211,6 +211,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                                     .ok_or_else(|| anyhow!(r"Couldn't find label {}", s.0))?
                                     .offset
                             }
+                            Value::List(_) => bail!("got list argument for WORD"),
                         },
                         Argument::Expr(_) | Argument::ExprCurrentOffset => {
                             bail!("Found EXPR for WORD value")
@@ -221,7 +222,10 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                 }
                 Assembler::RESW | Assembler::RESB | Assembler::END => {
                     if matches!(line.directive, Directive::Command(Assembler::END)) {
-                        let start_label = line.argument.expect_string()?;
+                        let start_label = line
+                            .argument
+                            .expect_string()
+                            .with_context(|| format!("on line {}", line.line_no))?;
                         let start_label = data
                             .get_label(&current_csect.name, &start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
@@ -255,23 +259,23 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::TwoReg(opcode) => {
-                    let arg_str = line.argument.expect_string()?;
-                    let (r1s, r2s) = arg_str
-                        .split_once(',')
-                        .ok_or_else(|| anyhow!("Malformed TwoReg argument"))?;
-                    let r1 = register(r1s)?;
-                    let r2 = register(r2s)?;
+                    let args = line.argument.expect_list()?;
+                    if args.len() != 2 {
+                        bail!("expected 2 register list for tworeg");
+                    }
+                    let r1 = register(&args[0])?;
+                    let r2 = register(&args[1])?;
 
                     let op = Op::TwoReg(TwoReg { opcode, r1, r2 });
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Shift(opcode) => {
-                    let arg_str = line.argument.expect_string()?;
-                    let (r1s, ns) = arg_str
-                        .split_once(',')
-                        .ok_or_else(|| anyhow::Error::msg("Malformed TwoReg argument"))?;
-                    let r1 = register(r1s)?;
-                    let n = ns.parse::<u8>()? - 1;
+                    let args = line.argument.expect_list()?;
+                    if args.len() != 2 {
+                        bail!("expected register and number for shift");
+                    }
+                    let r1 = register(&args[0])?;
+                    let n = args[1].parse::<u8>()? - 1;
 
                     let op = Op::Shift(Shift { opcode, r1, n });
                     current_csect.add_instruction(addr, Data::Instruction(op));
@@ -307,6 +311,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             ),
                             Argument::Expr(_) | Argument::ExprCurrentOffset => {
                                 bail!("expr argument to variable op {opcode}")
+                            }
+                            Argument::Value(Value::List(_)) => {
+                                bail!("list argument invalid for variable op {opcode}")
                             }
                         }
                     };

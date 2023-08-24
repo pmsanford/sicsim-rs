@@ -7,6 +7,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    extdefs (section_name, symbol_name) {
+        section_name -> Text,
+        symbol_name -> Text,
+    }
+}
+
+diesel::table! {
+    extrefs (section_name, symbol_name) {
+        section_name -> Text,
+        symbol_name -> Text,
+    }
+}
+
+diesel::table! {
     labels (section_name, label_name) {
         section_name -> Text,
         line_no -> Integer,
@@ -56,6 +70,8 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(extdefs -> control_sections (section_name));
+diesel::joinable!(extrefs -> control_sections (section_name));
 diesel::joinable!(labels -> control_sections (section_name));
 diesel::joinable!(labels -> lines (line_no));
 diesel::joinable!(lines -> program_blocks (block_id));
@@ -65,6 +81,8 @@ diesel::joinable!(program_blocks -> control_sections (section_name));
 
 diesel::allow_tables_to_appear_in_same_query!(
     control_sections,
+    extdefs,
+    extrefs,
     labels,
     lines,
     literals,

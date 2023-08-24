@@ -124,6 +124,7 @@ pub struct Ltorg {
 #[derive(Queryable, Debug, Identifiable, Selectable)]
 #[diesel(primary_key(block_id))]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+#[diesel(belongs_to(ControlSection, foreign_key = section_name))]
 pub struct ProgramBlock {
     pub block_id: i32,
     pub section_name: String,
@@ -172,4 +173,20 @@ impl ControlSection {
     pub fn new(name: String) -> Self {
         ControlSection { section_name: name }
     }
+}
+
+#[derive(Queryable, Debug, Identifiable, Selectable, Insertable)]
+#[diesel(primary_key(section_name, symbol_name))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Extdef {
+    pub section_name: String,
+    pub symbol_name: String,
+}
+
+#[derive(Queryable, Debug, Identifiable, Selectable, Insertable)]
+#[diesel(primary_key(section_name, symbol_name))]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Extref {
+    pub section_name: String,
+    pub symbol_name: String,
 }

@@ -1,5 +1,7 @@
 use crate::models::{ControlSection, Line, Literal, ProgramBlock};
-use crate::parser::{parse_program, AsmArg, AssemblyLine, Expr, ExprOp, ExprTarget, ParserLine};
+use crate::parser::{
+    self, parse_program, AsmArg, AssemblyLine, Expr, ExprOp, ExprTarget, ParserLine,
+};
 use anyhow::{anyhow, bail, Context, Result};
 
 use crate::{
@@ -90,6 +92,11 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
     Ok(data)
 }
 
+/*
+fn handle_extdefs(current_section: &ControlSection, program_line: &AssemblyLine, data: &mut AsmData) -> Result<()> {
+}
+*/
+
 fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usize> {
     let mut ltorg_offset = current_block.current_offset;
     let mut bytes = Vec::new();
@@ -120,20 +127,36 @@ fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usiz
     Ok(size)
 }
 
+fn check_indexed(program_line: &AssemblyLine) -> (Option<Argument>, bool) {
+    let argument = program_line.argument.clone();
+    if let Some(Argument::Value(Value::List(ref l))) = argument {
+        if let Some(i) = l.get(1) {
+            if l.len() == 2 && i == "X" {
+                return (
+                    Some(Argument::Value(Value::String(parser::Label(l[0].clone())))),
+                    true,
+                );
+            }
+        }
+    }
+    (argument, false)
+}
+
 fn new_line(
     parsed_line: &ParserLine,
     program_line: &AssemblyLine,
     current_block: &ProgramBlock,
     size: usize,
 ) -> Line {
+    let (argument, indexed) = check_indexed(program_line);
     Line {
         block_id: current_block.block_id,
         line_no: parsed_line.line_no,
         directive: program_line.directive,
-        argument: program_line.argument.clone(),
+        argument,
         address_modifier: program_line.address_modifier,
         extended: program_line.extended,
-        indexed: program_line.indexed,
+        indexed,
         size,
         offset: current_block.current_offset as usize,
         text: parsed_line.text.clone(),
@@ -219,7 +242,7 @@ fn handle_csect(
             .0
             .clone();
 
-        let new_section = data.create_control_section(&section_name)?;
+        let new_section = data.create_control_section(section_name.clone())?;
         let new_block = data.add_program_block(section_name, "".into())?;
 
         Ok((new_section, new_block))
@@ -265,6 +288,7 @@ fn value_for_expr(section_name: &str, value: &Value, data: &mut AsmData) -> Resu
                 .ok_or_else(|| anyhow!("label {} doesn't exist", label.0))?
                 .offset
         }
+        Value::List(_) => bail!("can't convert list to i32"),
     };
 
     Ok(v)

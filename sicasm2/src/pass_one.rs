@@ -131,7 +131,10 @@ fn check_indexed(program_line: &AssemblyLine) -> (Option<Argument>, bool) {
     let argument = program_line.argument.clone();
     if let Some(Argument::Value(Value::List(ref l))) = argument {
         if let Some(i) = l.get(1) {
-            if l.len() == 2 && i == "X" {
+            if l.len() == 2
+                && i == "X"
+                && !matches!(program_line.directive, Directive::Op(parser::Op::TwoReg(_)))
+            {
                 return (
                     Some(Argument::Value(Value::String(parser::Label(l[0].clone())))),
                     true,

@@ -181,7 +181,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let length = data.get_section_length(&current_csect.name)?;
                     current_csect.set_length(length as usize);
                     control_sections.push(current_csect);
-                    let name = line.argument.expect_string()?;
+                    let name = line.argument.expect_string().context("for csect")?;
                     current_csect = ControlSectionBuilder::new(name, 0);
                 }
                 Assembler::BASE => {
@@ -253,7 +253,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::OneReg(opcode) => {
-                    let r1 = register(&line.argument.expect_string()?)?;
+                    let r1 = register(&line.argument.expect_string().context("for onereg")?)?;
 
                     let op = Op::OneReg(OneReg { opcode, r1 });
                     current_csect.add_instruction(addr, Data::Instruction(op));
@@ -281,7 +281,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Svc => {
-                    let n = line.argument.expect_number()? as u8;
+                    let n = line.argument.expect_number().context("for svc")? as u8;
 
                     let op = Op::Svc(n);
                     current_csect.add_instruction(addr, Data::Instruction(op));

@@ -8,7 +8,7 @@ use libsic::xe::op::{OneByteOp, OneRegOp, ShiftOp, TwoRegOp, VariableOp, SVC};
 use nom::{
     branch::alt,
     bytes::complete::{tag, take, take_until1, take_while1},
-    character::complete::{alpha1, alphanumeric0, anychar, digit1, space1},
+    character::complete::{alpha1, alphanumeric0, alphanumeric1, anychar, digit1, space1},
     combinator::{all_consuming, map, map_parser, map_res, opt, recognize},
     error::ErrorKind,
     multi::{fold_many1, many0, many1},
@@ -302,17 +302,8 @@ fn comma_list(i: &str) -> IResult<&str, Vec<String>> {
         acc.push(item);
         acc
     })(i)?;
-    let (i, last) = alpha1(i)?;
-    if items.len() == 1 {
-        if let Some(last) = last.chars().next() {
-            if last == 'x' || last == 'X' {
-                return Err(nom::Err::Error(nom::error::Error::new(
-                    i,
-                    nom::error::ErrorKind::Fail,
-                )));
-            }
-        }
-    }
+    // This is alphanumeric to support shift
+    let (i, last) = alphanumeric1(i)?;
 
     items.push(last.to_owned());
 

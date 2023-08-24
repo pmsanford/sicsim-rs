@@ -259,7 +259,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::TwoReg(opcode) => {
-                    let args = line.argument.expect_list()?;
+                    let args = line.argument.expect_list().context("for tworeg")?;
                     if args.len() != 2 {
                         bail!("expected 2 register list for tworeg");
                     }
@@ -270,7 +270,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Instruction(op));
                 }
                 parser::Op::Shift(opcode) => {
-                    let args = line.argument.expect_list()?;
+                    let args = line.argument.expect_list().context("for shift")?;
                     if args.len() != 2 {
                         bail!("expected register and number for shift");
                     }

@@ -305,4 +305,12 @@ impl AsmData {
             })
             .get_result(&mut self.conn)?)
     }
+
+    pub fn get_extref(&mut self, section_name: &str, symbol_name: &str) -> Result<Option<Extref>> {
+        use crate::schema::extrefs::dsl::extrefs;
+        Ok(extrefs
+            .find((section_name, symbol_name))
+            .get_result(&mut self.conn)
+            .optional()?)
+    }
 }

@@ -2,6 +2,7 @@ use std::{collections::HashMap, mem, sync::OnceLock};
 
 use crate::data::AsmData;
 use crate::parser::{self, Argument, Arguments, Assembler, Directive, Value};
+use crate::pass_one;
 use crate::record::{Data, Record, Text};
 use anyhow::{anyhow, bail, Context, Result};
 use libsic::xe::op::{
@@ -148,9 +149,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
     let Some(start_label) = data.get_label_by_line(start.line_no)? else { bail!("expected program name"); };
 
-    let name = start_label.label_name;
+    let first_csect = start_label.label_name;
 
-    let mut debug = Sdb::new(&name, start_addr as usize);
+    let mut debug = Sdb::new(&first_csect, start_addr as usize);
 
     let labels = data.get_labels()?;
 
@@ -160,7 +161,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
     let mut control_sections = Vec::new();
 
-    let mut current_csect = ControlSectionBuilder::new(name.clone(), start_addr as usize);
+    let mut current_csect = ControlSectionBuilder::new(first_csect.clone(), start_addr as usize);
 
     for line in lines.iter().skip(1) {
         let block = data
@@ -181,7 +182,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let length = data.get_section_length(&current_csect.name)?;
                     current_csect.set_length(length as usize);
                     control_sections.push(current_csect);
-                    let name = line.argument.expect_string().context("for csect")?;
+                    let name = data
+                        .get_label_by_line(line.line_no)?
+                        .ok_or_else(|| {
+                            anyhow!("expected label for CSECT on line {}", line.line_no)
+                        })?
+                        .label_name
+                        .clone();
                     current_csect = ControlSectionBuilder::new(name, 0);
                 }
                 Assembler::BASE => {
@@ -213,9 +220,12 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             }
                             Value::List(_) => bail!("got list argument for WORD"),
                         },
-                        Argument::Expr(_) | Argument::ExprCurrentOffset => {
-                            bail!("Found EXPR for WORD value")
+                        Argument::Expr(e) => {
+                            // TODO: Add modification record
+                            pass_one::eval_expr(&current_csect.name, &e, &mut data, true)
+                                .context("for WORD")?
                         }
+                        Argument::ExprCurrentOffset => line.offset as i32,
                     };
 
                     current_csect.add_instruction(addr, Data::Word(arg as u32));
@@ -227,7 +237,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             .expect_string()
                             .with_context(|| format!("on line {}", line.line_no))?;
                         let start_label = data
-                            .get_label(&current_csect.name, &start_label)?
+                            .get_label(&first_csect, &start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
                         current_csect.set_start_offset(start_label.offset as usize);
 
@@ -293,7 +303,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     {
                         (true, 0)
                     } else {
-                        let Some(ref argument) = line.argument else { bail!("No argument for variable op {opcode}"); };
+                        let Some(ref argument) = line.argument else { bail!("no argument for variable op {opcode} on line {}", line.line_no); };
 
                         match argument {
                             Argument::Value(Value::Bytes(b) | Value::Chars(b)) => (
@@ -303,12 +313,18 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                                     .ok_or_else(|| anyhow!("unaddressed literal in pass two"))?,
                             ),
                             Argument::Value(Value::Number(i)) => (true, *i),
-                            Argument::Value(Value::String(s)) => (
-                                false,
-                                data.get_label(&current_csect.name, &s.0)?
-                                    .ok_or_else(|| anyhow!("couldn't find label {}", s.0))?
-                                    .offset,
-                            ),
+                            Argument::Value(Value::String(s)) => {
+                                if let Some(label) = data.get_label(&current_csect.name, &s.0)? {
+                                    (false, label.offset)
+                                } else {
+                                    // TODO: add modification record here
+                                    let _ =
+                                        data.get_extref(&current_csect.name, &s.0)?.ok_or_else(
+                                            || anyhow!("couldn't find label or extref for {}", s.0),
+                                        )?;
+                                    (true, 0)
+                                }
+                            }
                             Argument::Expr(_) | Argument::ExprCurrentOffset => {
                                 bail!("expr argument to variable op {opcode}")
                             }
@@ -362,7 +378,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             address: op_address,
                             length,
                             add: true,
-                            symbol: name.clone(),
+                            symbol: first_csect.clone(),
                         });
                     }
 

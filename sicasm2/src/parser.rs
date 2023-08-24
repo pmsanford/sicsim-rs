@@ -676,4 +676,17 @@ LB      EQU     LB1+5 . something
 
         expr(expr_str).unwrap();
     }
+
+    #[test]
+    fn parse_eq_lit_line() {
+        let line = "ENDFIL   LDA      =C'EOF'              INSERT END OF FILE MARKER";
+
+        let line = asm_line(line).unwrap().1;
+
+        let arg = line.argument.unwrap();
+
+        let Argument::Value(Value::Chars(v)) = arg else { panic!("expected value"); };
+
+        assert_eq!(v, vec![b'E', b'O', b'F']);
+    }
 }

@@ -56,6 +56,8 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
             data.add_line(&line)?;
 
+            handle_ext(program_line, &current_block, &mut data)?;
+
             handle_label(program_line, &current_block, &mut data, parsed_line.line_no)?;
 
             handle_literal(program_line, &current_block, &mut data)?;
@@ -191,6 +193,38 @@ fn handle_literal(
     Ok(())
 }
 
+fn handle_ext(
+    program_line: &AssemblyLine,
+    current_block: &ProgramBlock,
+    data: &mut AsmData,
+) -> Result<()> {
+    if !matches!(
+        program_line.directive,
+        Directive::Command(Assembler::EXTDEF | Assembler::EXTREF)
+    ) {
+        return Ok(());
+    }
+
+    let defs = program_line
+        .argument
+        .expect_list()
+        .with_context(|| format!("for {:?}", program_line.directive))?;
+
+    for def in defs {
+        match program_line.directive {
+            Directive::Command(Assembler::EXTDEF) => {
+                data.add_extdef(current_block.section_name.clone(), def)?;
+            }
+            Directive::Command(Assembler::EXTREF) => {
+                data.add_extref(current_block.section_name.clone(), def)?;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
 fn handle_label(
     program_line: &AssemblyLine,
     current_block: &ProgramBlock,
@@ -204,8 +238,8 @@ fn handle_label(
                 .as_ref()
                 .ok_or_else(|| anyhow!("expected argument for equ"))?;
             match arg {
-                Argument::Value(v) => value_for_expr(&current_block.section_name, v, data)?,
-                Argument::Expr(e) => eval_expr(&current_block.section_name, e, data)?,
+                Argument::Value(v) => value_for_expr(&current_block.section_name, v, data, false)?,
+                Argument::Expr(e) => eval_expr(&current_block.section_name, e, data, false)?,
                 Argument::ExprCurrentOffset => current_block.current_offset,
             }
         } else {
@@ -282,14 +316,23 @@ fn handle_use(
     Ok(current_block)
 }
 
-fn value_for_expr(section_name: &str, value: &Value, data: &mut AsmData) -> Result<i32> {
+fn value_for_expr(
+    section_name: &str,
+    value: &Value,
+    data: &mut AsmData,
+    allow_extref: bool,
+) -> Result<i32> {
     let v = match value {
         Value::Bytes(_) | Value::Chars(_) => bail!("cannot convert bytes/chars to i32"),
         Value::Number(n) => *n,
         Value::String(label) => {
-            data.get_label(section_name, &label.0)?
-                .ok_or_else(|| anyhow!("label {} doesn't exist", label.0))?
-                .offset
+            if let Some(label) = data.get_label(section_name, &label.0)? {
+                label.offset
+            } else if allow_extref && data.get_extref(section_name, &label.0)?.is_some() {
+                0
+            } else {
+                bail!("couldn't find value for label {}", label.0);
+            }
         }
         Value::List(_) => bail!("can't convert list to i32"),
     };
@@ -297,12 +340,17 @@ fn value_for_expr(section_name: &str, value: &Value, data: &mut AsmData) -> Resu
     Ok(v)
 }
 
-fn eval_expr(section_name: &str, expr: &Expr, data: &mut AsmData) -> Result<i32> {
-    let lhs = value_for_expr(section_name, &expr.value, data)?;
+pub fn eval_expr(
+    section_name: &str,
+    expr: &Expr,
+    data: &mut AsmData,
+    allow_extref: bool,
+) -> Result<i32> {
+    let lhs = value_for_expr(section_name, &expr.value, data, allow_extref)?;
 
     let rhs = match &expr.target {
-        ExprTarget::Argument(v) => value_for_expr(section_name, v, data)?,
-        ExprTarget::Expr(e) => eval_expr(section_name, e, data)?,
+        ExprTarget::Argument(v) => value_for_expr(section_name, v, data, allow_extref)?,
+        ExprTarget::Expr(e) => eval_expr(section_name, e, data, allow_extref)?,
     };
 
     let result = match expr.op {

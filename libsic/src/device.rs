@@ -1,8 +1,7 @@
 use std::{
     cell::RefCell,
     fs::File,
-    io::{Read, Write},
-    sync::Arc,
+    io::{Read, Write}, rc::Rc,
 };
 
 use thiserror::Error;
@@ -81,14 +80,14 @@ impl Device for FileOutputDevice {
 }
 
 pub struct MemoryOutputDevice {
-    buffer: Arc<RefCell<Vec<u8>>>,
+    buffer: Rc<RefCell<Vec<u8>>>,
 }
 
 impl MemoryOutputDevice {
-    pub fn new() -> (Arc<RefCell<Vec<u8>>>, Self) {
-        let buffer = Arc::new(RefCell::new(Vec::new()));
+    pub fn new() -> (Rc<RefCell<Vec<u8>>>, Self) {
+        let buffer = Rc::new(RefCell::new(Vec::new()));
         let device = Self {
-            buffer: Arc::clone(&buffer),
+            buffer: Rc::clone(&buffer),
         };
         (buffer, device)
     }

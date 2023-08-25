@@ -222,7 +222,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         },
                         Argument::Expr(e) => {
                             // TODO: Add modification record
-                            pass_one::eval_expr(&current_csect.name, &e, &mut data, true)
+                            pass_one::eval_expr(&current_csect.name, e, &mut data, true)
                                 .context("for WORD")?
                         }
                         Argument::ExprCurrentOffset => line.offset as i32,
@@ -315,7 +315,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             Argument::Value(Value::Number(i)) => (true, *i),
                             Argument::Value(Value::String(s)) => {
                                 if let Some(label) = data.get_label(&current_csect.name, &s.0)? {
-                                    (false, label.offset)
+                                    let mut offset = label.offset;
+                                    if !label.is_absolute {
+                                        offset = block.calc_address(offset as usize) as i32;
+                                    }
+                                    (false, offset)
                                 } else {
                                     // TODO: add modification record here
                                     let _ =
@@ -340,6 +344,8 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         .base
                         .filter(|base| target_offset >= *base)
                         .map(|base| target_offset - base);
+
+                    println!("addr: {addr} pc: {pc} target_offset: {target_offset}");
 
                     let (disp, relative_to) =
                         match (mode, constant, line.extended, pc_disp, base_disp) {
@@ -381,6 +387,8 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             symbol: first_csect.clone(),
                         });
                     }
+
+                    println!("disp: {disp:?} relto: {relative_to:?}");
 
                     let address_flags = AddressFlags {
                         mode,

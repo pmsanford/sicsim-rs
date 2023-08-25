@@ -28,6 +28,7 @@ CREATE TABLE labels (
   section_name text not null,
   line_no integer not null,
   label_name text not null,
+  is_absolute boolean not null default false,
   offset integer not null,
   FOREIGN KEY(section_name) REFERENCES control_sections(section_name),
   FOREIGN KEY(line_no) REFERENCES lines(line_no),

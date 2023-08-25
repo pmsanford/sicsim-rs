@@ -76,9 +76,10 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
     for section in data.get_control_sections()? {
         let mut blocks = data.get_program_blocks(&section.section_name)?;
-        let Some(first) = blocks.get(0) else { continue; };
+        let Some(first) = blocks.get_mut(0) else { continue; };
+
         if first.start_offset.is_none() {
-            continue;
+            first.start_offset = Some(0);
         }
 
         let offsets = blocks
@@ -88,16 +89,12 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
         for (idx, block) in blocks.iter_mut().enumerate().skip(1) {
             block.start_offset = Some(offsets[idx - 1]);
+            data.set_start_location(block)?;
         }
     }
 
     Ok(data)
 }
-
-/*
-fn handle_extdefs(current_section: &ControlSection, program_line: &AssemblyLine, data: &mut AsmData) -> Result<()> {
-}
-*/
 
 fn create_ltorg(current_block: &ProgramBlock, data: &mut AsmData) -> Result<usize> {
     let mut ltorg_offset = current_block.current_offset;
@@ -232,23 +229,30 @@ fn handle_label(
     line_no: usize,
 ) -> Result<()> {
     if let Some(ref label) = program_line.label {
-        let offset = if program_line.directive == Directive::Command(Assembler::EQU) {
+        let (offset, is_absolute) = if program_line.directive == Directive::Command(Assembler::EQU)
+        {
             let arg = program_line
                 .argument
                 .as_ref()
                 .ok_or_else(|| anyhow!("expected argument for equ"))?;
-            match arg {
-                Argument::Value(v) => value_for_expr(&current_block.section_name, v, data, false)?,
-                Argument::Expr(e) => eval_expr(&current_block.section_name, e, data, false)?,
-                Argument::ExprCurrentOffset => current_block.current_offset,
-            }
+            (
+                match arg {
+                    Argument::Value(v) => {
+                        value_for_expr(&current_block.section_name, v, data, false)?
+                    }
+                    Argument::Expr(e) => eval_expr(&current_block.section_name, e, data, false)?,
+                    Argument::ExprCurrentOffset => current_block.current_offset,
+                },
+                true,
+            )
         } else {
-            current_block.current_offset
+            (current_block.current_offset, false)
         };
 
         let label = Label {
             offset,
             section_name: current_block.section_name.clone(),
+            is_absolute,
             line_no: line_no as i32,
             label_name: label.0.clone(),
         };

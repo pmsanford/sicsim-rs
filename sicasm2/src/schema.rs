@@ -25,6 +25,7 @@ diesel::table! {
         section_name -> Text,
         line_no -> Integer,
         label_name -> Text,
+        is_absolute -> Bool,
         offset -> Integer,
     }
 }

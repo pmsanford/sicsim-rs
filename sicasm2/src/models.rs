@@ -13,6 +13,7 @@ pub struct Label {
     pub section_name: String,
     pub line_no: i32,
     pub label_name: String,
+    pub is_absolute: bool,
     pub offset: i32,
 }
 

@@ -107,7 +107,9 @@ impl ControlSectionBuilder {
     }
 
     fn build(mut self) -> Result<Vec<Record>> {
-        let Some(length) = self.length else { bail!("no length set"); };
+        let Some(length) = self.length else {
+            bail!("no length set");
+        };
         let header = Record::Header {
             name: self.name,
             start: self.start_addr,
@@ -142,12 +144,16 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         bail!("expected end directive");
     }
 
-    let Some(Argument::Value(Value::Number(start_addr))) = start.argument else { bail!("expected start address"); };
+    let Some(Argument::Value(Value::Number(start_addr))) = start.argument else {
+        bail!("expected start address");
+    };
 
     // Hacky, but start addr (and end addr) are hex, the rest of the source lines are decimal
     let start_addr = i32::from_str_radix(&start_addr.to_string(), 16)?;
 
-    let Some(start_label) = data.get_label_by_line(start.line_no)? else { bail!("expected program name"); };
+    let Some(start_label) = data.get_label_by_line(start.line_no)? else {
+        bail!("expected program name");
+    };
 
     let first_csect = start_label.label_name;
 
@@ -171,12 +177,8 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         debug.add_line(addr as u32, line.text.clone(), line.line_no);
         match line.directive {
             Directive::Command(cmd) => match cmd {
-                Assembler::START
-                | Assembler::EQU
-                | Assembler::ORG
-                | Assembler::USE
-                | Assembler::EXTDEF
-                | Assembler::EXTREF => {}
+                Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
+                Assembler::EXTDEF | Assembler::EXTREF => {}
                 Assembler::CSECT => {
                     // TODO: Is the length this simple?
                     let length = data.get_section_length(&current_csect.name)?;
@@ -193,7 +195,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                 }
                 Assembler::BASE => {
                     let label_name = line.argument.string()?;
-                    let Some(label) = data.get_label(&current_csect.name, &label_name)? else { bail!("couldn't find label for base"); };
+                    let Some(label) = data.get_label(&current_csect.name, &label_name)? else {
+                        bail!("couldn't find label for base");
+                    };
 
                     current_csect.base = Some(label.offset);
                 }
@@ -206,7 +210,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Byte(ltorg.data));
                 }
                 Assembler::WORD => {
-                    let Some(ref arg) = line.argument else { bail!("WORD requires an argument"); };
+                    let Some(ref arg) = line.argument else {
+                        bail!("WORD requires an argument");
+                    };
                     let arg = match arg {
                         Argument::Value(v) => match v {
                             Value::Bytes(_) | Value::Chars(_) => {
@@ -303,7 +309,12 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     {
                         (true, 0)
                     } else {
-                        let Some(ref argument) = line.argument else { bail!("no argument for variable op {opcode} on line {}", line.line_no); };
+                        let Some(ref argument) = line.argument else {
+                            bail!(
+                                "no argument for variable op {opcode} on line {}",
+                                line.line_no
+                            );
+                        };
 
                         match argument {
                             Argument::Value(Value::Bytes(b) | Value::Chars(b)) => (

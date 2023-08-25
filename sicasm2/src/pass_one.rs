@@ -23,7 +23,9 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
         .find(|l| matches!(l.data, ProgramLine::Assembly(_)))
         .expect("program line");
 
-    let ProgramLine::Assembly(ref start_line) = first_line.data else { bail!("impossible"); };
+    let ProgramLine::Assembly(ref start_line) = first_line.data else {
+        bail!("impossible");
+    };
 
     let start_label = start_line.label.as_ref().expect("program name").0.clone();
     let start_addr = start_line.argument.as_string()?;
@@ -39,7 +41,9 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
     data.set_start_location(&current_block)?;
 
     for parsed_line in parsed.iter() {
-        let ProgramLine::Assembly(ref program_line) = parsed_line.data else { continue; };
+        let ProgramLine::Assembly(ref program_line) = parsed_line.data else {
+            continue;
+        };
         {
             (current_section, current_block) =
                 handle_csect(program_line, current_section, current_block, &mut data)?;
@@ -76,7 +80,9 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
 
     for section in data.get_control_sections()? {
         let mut blocks = data.get_program_blocks(&section.section_name)?;
-        let Some(first) = blocks.get_mut(0) else { continue; };
+        let Some(first) = blocks.get_mut(0) else {
+            continue;
+        };
 
         if first.start_offset.is_none() {
             first.start_offset = Some(0);

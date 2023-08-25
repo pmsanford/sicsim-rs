@@ -88,7 +88,12 @@ impl Serialize for Op {
             Op::Variable(o) => o.to_u8(),
         };
 
-        let Some(val) = val else { return Err(Error::custom(format!("couldn't convert op {:?} to u8", self))); };
+        let Some(val) = val else {
+            return Err(Error::custom(format!(
+                "couldn't convert op {:?} to u8",
+                self
+            )));
+        };
 
         serializer.serialize_u8(val)
     }
@@ -278,13 +283,17 @@ pub trait Arguments {
 
 impl Arguments for Option<Argument> {
     fn string(&self) -> Result<String> {
-        let Some(Argument::Value(Value::String(l))) = self else { bail!("expected string"); };
+        let Some(Argument::Value(Value::String(l))) = self else {
+            bail!("expected string");
+        };
 
         Ok(l.0.clone())
     }
 
     fn literal(&self) -> Result<Vec<u8>> {
-        let Some(Argument::Value(Value::Bytes(v) | Value::Chars(v))) = self else { bail!("expected literal"); };
+        let Some(Argument::Value(Value::Bytes(v) | Value::Chars(v))) = self else {
+            bail!("expected literal");
+        };
 
         Ok(v.clone())
     }
@@ -522,24 +531,32 @@ pub trait AsmArg {
 
 impl AsmArg for Option<Argument> {
     fn expect_string(&self) -> Result<String> {
-        let Some(Argument::Value(Value::String(s))) = self else { bail!("expected string argument"); };
+        let Some(Argument::Value(Value::String(s))) = self else {
+            bail!("expected string argument");
+        };
 
         Ok(s.0.clone())
     }
 
     fn expect_number(&self) -> Result<u32> {
-        let Some(Argument::Value(Value::Number(i))) = self else { bail!("expected string argument"); };
+        let Some(Argument::Value(Value::Number(i))) = self else {
+            bail!("expected string argument");
+        };
 
         Ok(*i as u32)
     }
     fn expect_list(&self) -> Result<Vec<String>> {
-        let Some(Argument::Value(Value::List(l))) = self else { bail!("expected list argument"); };
+        let Some(Argument::Value(Value::List(l))) = self else {
+            bail!("expected list argument");
+        };
 
         Ok(l.clone())
     }
 
     fn as_string(&self) -> Result<String> {
-        let Some(Argument::Value(v)) = self else { bail!("expected value argument"); };
+        let Some(Argument::Value(v)) = self else {
+            bail!("expected value argument");
+        };
 
         Ok(match v {
             Value::Number(n) => n.to_string(),
@@ -685,7 +702,9 @@ LB      EQU     LB1+5 . something
 
         let arg = line.argument.unwrap();
 
-        let Argument::Value(Value::Chars(v)) = arg else { panic!("expected value"); };
+        let Argument::Value(Value::Chars(v)) = arg else {
+            panic!("expected value");
+        };
 
         assert_eq!(v, vec![b'E', b'O', b'F']);
     }

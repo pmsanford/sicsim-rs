@@ -357,7 +357,12 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             (_, _, _, _, Some(bd)) if bd < MAX_DISP as i32 => {
                                 (bd, AddressRelativeTo::Base)
                             }
-                            _ if target_offset < MAX_DISP as i32 => {
+                            // This doens't work with relocatable code because
+                            // target_offset + new program location could be
+                            // too big to fit in the instruction.
+                            _ if target_offset < MAX_DISP as i32
+                                && current_csect.start_addr > 0 =>
+                            {
                                 (target_offset, AddressRelativeTo::Direct)
                             }
                             _ => bail!("couldn't find addressing mode for target"),

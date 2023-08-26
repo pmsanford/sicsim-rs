@@ -157,8 +157,11 @@ impl Display for Record {
             }
             Record::Modification(modification) => write!(
                 f,
-                "M{:0>6X}{:0>2X}",
-                modification.address, modification.length
+                "M{:0>6X}{:0>2X}{}{}",
+                modification.address,
+                modification.length,
+                if modification.add { "+" } else { "-" },
+                modification.symbol
             ),
             Record::End { first_instruction } => {
                 if let Some(first_instruction) = first_instruction {

@@ -343,8 +343,8 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     let mode = line.address_modifier;
                     let is_rsub =
                         line.directive == Directive::Op(parser::Op::Variable(VariableOp::RSUB));
-                    let (constant, target_offset) = if is_rsub {
-                        (true, 0)
+                    let (constant, target_offset, extref) = if is_rsub {
+                        (true, 0, None)
                     } else {
                         let Some(ref argument) = line.argument else {
                             bail!(
@@ -359,22 +359,23 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                                 data.get_literal(line.block_id, b)?
                                     .offset
                                     .ok_or_else(|| anyhow!("unaddressed literal in pass two"))?,
+                                None,
                             ),
-                            Argument::Value(Value::Number(i)) => (true, *i),
+                            Argument::Value(Value::Number(i)) => (true, *i, None),
                             Argument::Value(Value::String(s)) => {
                                 if let Some(label) = data.get_label(&current_csect.name, &s.0)? {
                                     let mut offset = label.offset;
                                     if !label.is_absolute {
                                         offset = block.calc_address(offset as usize) as i32;
                                     }
-                                    (false, offset)
+                                    (false, offset, None)
                                 } else {
                                     // TODO: add modification record here
-                                    let _ =
+                                    let extref =
                                         data.get_extref(&current_csect.name, &s.0)?.ok_or_else(
                                             || anyhow!("couldn't find label or extref for {}", s.0),
                                         )?;
-                                    (true, 0)
+                                    (true, 0, Some(extref.symbol_name))
                                 }
                             }
                             Argument::Expr(_) | Argument::ExprCurrentOffset => {
@@ -435,11 +436,17 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
                         let op_address = addr + 1;
 
+                        let symbol = if let Some(symbol) = extref {
+                            symbol
+                        } else {
+                            first_csect.clone()
+                        };
+
                         current_csect.modifications.push(Modification {
                             address: op_address,
                             length,
                             add: true,
-                            symbol: first_csect.clone(),
+                            symbol,
                         });
                     }
 

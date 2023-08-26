@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem, sync::OnceLock};
 use crate::data::AsmData;
 use crate::parser::{self, Argument, Arguments, Assembler, Directive, Value};
 use crate::pass_one;
-use crate::record::{Data, Define, ExtDef, Record, Text};
+use crate::record::{Data, Define, ExtDef, Record, Refer, Text};
 use anyhow::{anyhow, bail, Context, Result};
 use libsic::xe::op::{
     AddressFlags, AddressMode, AddressRelativeTo, OneReg, Op, Register, Shift, TwoReg, Variable,
@@ -125,6 +125,11 @@ impl ControlSectionBuilder {
                 definitions: self.extdefs.clone(),
             }));
         }
+        if !self.extrefs.is_empty() {
+            records.push(Record::Refer(Refer {
+                references: self.extrefs.clone(),
+            }));
+        }
         if let Some(text) = self.current_text {
             self.records.push(Record::Text(text));
         }
@@ -207,7 +212,10 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         });
                     }
                 }
-                Assembler::EXTREF => {}
+                Assembler::EXTREF => {
+                    let mut names = line.argument.expect_list().context("for extref")?;
+                    current_csect.extrefs.append(&mut names);
+                }
                 Assembler::CSECT => {
                     // TODO: Is the length this simple?
                     let length = data.get_section_length(&current_csect.name)?;

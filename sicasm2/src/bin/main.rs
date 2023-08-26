@@ -22,7 +22,7 @@ fn main() -> Result<()> {
 
     for (idx, record) in prog.into_iter().enumerate() {
         if matches!(record, Record::Header { .. }) && idx > 0 {
-            writeln!(output, "")?;
+            writeln!(output)?;
         }
         writeln!(output, "{}", record)?;
     }

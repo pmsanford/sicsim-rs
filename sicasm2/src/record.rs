@@ -76,7 +76,7 @@ pub enum Record {
     Text(Text),
     Modification(Modification),
     End {
-        first_instruction: usize,
+        first_instruction: Option<usize>,
     },
 }
 
@@ -160,7 +160,13 @@ impl Display for Record {
                 "M{:0>6X}{:0>2X}",
                 modification.address, modification.length
             ),
-            Record::End { first_instruction } => write!(f, "E{:0>6X}", first_instruction),
+            Record::End { first_instruction } => {
+                if let Some(first_instruction) = first_instruction {
+                    write!(f, "E{:0>6X}", first_instruction)
+                } else {
+                    write!(f, "E")
+                }
+            }
         }
     }
 }

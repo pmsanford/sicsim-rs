@@ -134,7 +134,11 @@ impl ControlSectionBuilder {
         }
         if let Some(start_offset) = self.start_offset {
             records.push(Record::End {
-                first_instruction: start_offset + self.start_addr,
+                first_instruction: Some(start_offset + self.start_addr),
+            });
+        } else {
+            records.push(Record::End {
+                first_instruction: None,
             });
         }
 
@@ -275,13 +279,13 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         let start_label = data
                             .get_label(&first_csect, &start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
-                        current_csect.set_start_offset(start_label.offset as usize);
+                        control_sections[0].set_start_offset(start_label.offset as usize);
 
                         let length = data.get_section_length(&current_csect.name)?;
                         if let Some(ltorg) = data.get_ltorg(line.block_id, line.offset)? {
                             current_csect.add_instruction(addr, Data::Byte(ltorg.data));
                         }
-                        current_csect.set_length((length - start_label.offset) as usize);
+                        current_csect.set_length(length as usize);
 
                         if let Some(mut final_ltorg) = data.get_final_ltorg(0)? {
                             let offset = final_ltorg.offset as usize;
@@ -337,9 +341,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                 }
                 parser::Op::Variable(opcode) => {
                     let mode = line.address_modifier;
-                    let (constant, target_offset) = if line.directive
-                        == Directive::Op(parser::Op::Variable(VariableOp::RSUB))
-                    {
+                    let is_rsub =
+                        line.directive == Directive::Op(parser::Op::Variable(VariableOp::RSUB));
+                    let (constant, target_offset) = if is_rsub {
                         (true, 0)
                     } else {
                         let Some(ref argument) = line.argument else {
@@ -417,7 +421,10 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         AddressModifier::Immediate => AddressMode::Immediate,
                     };
 
-                    if mode != AddressMode::Immediate && relative_to == AddressRelativeTo::Direct {
+                    if mode != AddressMode::Immediate
+                        && relative_to == AddressRelativeTo::Direct
+                        && !is_rsub
+                    {
                         let length = if mode == AddressMode::Compatiblity {
                             4
                         } else if line.extended {

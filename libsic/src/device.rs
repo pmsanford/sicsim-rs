@@ -1,7 +1,8 @@
 use std::{
     cell::RefCell,
     fs::File,
-    io::{Read, Write}, rc::Rc,
+    io::{Read, Write},
+    rc::Rc,
 };
 
 use thiserror::Error;

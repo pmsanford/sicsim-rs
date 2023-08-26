@@ -74,8 +74,10 @@ pub fn pass_one(program: &str) -> Result<AsmData> {
         .with_context(|| format!("pass one, line {}", parsed_line.line_no))?
     }
 
-    for block in data.get_program_blocks(&current_section.section_name)? {
-        create_ltorg(&block, &mut data)?;
+    for mut block in data.get_program_blocks(&current_section.section_name)? {
+        let size = create_ltorg(&block, &mut data)?;
+        block.current_offset += size as i32;
+        data.set_current_location(&block)?;
     }
 
     for section in data.get_control_sections()? {
@@ -278,8 +280,10 @@ fn handle_csect(
     if program_line.directive == Directive::Command(Assembler::CSECT) {
         // This currently assumes you can't "resume" control sections
         // like you can program blocks.
-        for block in data.get_program_blocks(&current_section.section_name)? {
-            create_ltorg(&block, data)?;
+        for mut block in data.get_program_blocks(&current_section.section_name)? {
+            let size = create_ltorg(&block, data)?;
+            block.current_offset += size as i32;
+            data.set_current_location(&block)?;
         }
 
         let section_name = program_line

@@ -631,7 +631,7 @@ DODO    EQU     MAX+5*END
         assert!(parsed[1].address_modifier == AddressModifier::Immediate);
         assert!(parsed[3].address_modifier == AddressModifier::Indirect);
         assert!(parsed[4].address_modifier == AddressModifier::Unmodified);
-        assert!(matches!(parsed[8].argument, None));
+        assert!(parsed[8].argument.is_none());
         assert!(matches!(
             parsed[9].argument,
             Some(Argument::Value(Value::String(_)))

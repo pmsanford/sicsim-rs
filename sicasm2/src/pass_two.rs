@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem, sync::OnceLock};
 use crate::data::AsmData;
 use crate::parser::{self, Argument, Arguments, Assembler, Directive, Value};
 use crate::pass_one;
-use crate::record::{Data, Record, Text};
+use crate::record::{Data, Define, ExtDef, Record, Text};
 use anyhow::{anyhow, bail, Context, Result};
 use libsic::xe::op::{
     AddressFlags, AddressMode, AddressRelativeTo, OneReg, Op, Register, Shift, TwoReg, Variable,
@@ -44,6 +44,8 @@ pub fn register(r: &str) -> Result<Register> {
 struct ControlSectionBuilder {
     records: Vec<Record>,
     modifications: Vec<Modification>,
+    extdefs: Vec<ExtDef>,
+    extrefs: Vec<String>,
     base: Option<i32>,
     current_text: Option<Text>,
     name: String,
@@ -57,6 +59,8 @@ impl ControlSectionBuilder {
         ControlSectionBuilder {
             records: Vec::new(),
             modifications: Vec::new(),
+            extdefs: Vec::new(),
+            extrefs: Vec::new(),
             base: None,
             current_text: None,
             name,
@@ -116,6 +120,14 @@ impl ControlSectionBuilder {
             length,
         };
         let mut records = vec![header];
+        if !self.extdefs.is_empty() {
+            records.push(Record::Define(Define {
+                definitions: self.extdefs.clone(),
+            }));
+        }
+        if let Some(text) = self.current_text {
+            self.records.push(Record::Text(text));
+        }
         records.append(&mut self.records);
         for modification in self.modifications {
             records.push(Record::Modification(modification));
@@ -169,7 +181,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
 
     let mut current_csect = ControlSectionBuilder::new(first_csect.clone(), start_addr as usize);
 
-    for line in lines.iter().skip(1) {
+    for line in lines.iter() {
         let block = data
             .get_program_block(line.block_id)?
             .expect("block for line");
@@ -178,10 +190,26 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         match line.directive {
             Directive::Command(cmd) => match cmd {
                 Assembler::START | Assembler::EQU | Assembler::ORG | Assembler::USE => {}
-                Assembler::EXTDEF | Assembler::EXTREF => {}
+                Assembler::EXTDEF => {
+                    let names = line.argument.expect_list().context("for extdef")?;
+                    for name in names {
+                        let label = data
+                            .get_label(&current_csect.name, &name)?
+                            .ok_or_else(|| anyhow!("couldn't find label {name} for extdef"))?;
+                        let offset = label.offset;
+                        current_csect.extdefs.push(ExtDef {
+                            name,
+                            offset: offset as usize,
+                        });
+                    }
+                }
+                Assembler::EXTREF => {}
                 Assembler::CSECT => {
                     // TODO: Is the length this simple?
                     let length = data.get_section_length(&current_csect.name)?;
+                    if let Some(ltorg) = data.get_ltorg(line.block_id, line.offset)? {
+                        current_csect.add_instruction(addr, Data::Byte(ltorg.data));
+                    }
                     current_csect.set_length(length as usize);
                     control_sections.push(current_csect);
                     let name = data
@@ -206,7 +234,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                     current_csect.add_instruction(addr, Data::Byte(bytes));
                 }
                 Assembler::LTORG => {
-                    let ltorg = data.get_ltorg(line.block_id, line.offset)?;
+                    let ltorg = data
+                        .get_ltorg(line.block_id, line.offset)?
+                        .ok_or_else(|| anyhow!("expected LTORG"))?;
                     current_csect.add_instruction(addr, Data::Byte(ltorg.data));
                 }
                 Assembler::WORD => {
@@ -248,6 +278,9 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         current_csect.set_start_offset(start_label.offset as usize);
 
                         let length = data.get_section_length(&current_csect.name)?;
+                        if let Some(ltorg) = data.get_ltorg(line.block_id, line.offset)? {
+                            current_csect.add_instruction(addr, Data::Byte(ltorg.data));
+                        }
                         current_csect.set_length((length - start_label.offset) as usize);
 
                         if let Some(mut final_ltorg) = data.get_final_ltorg(0)? {
@@ -356,12 +389,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         .filter(|base| target_offset >= *base)
                         .map(|base| target_offset - base);
 
-                    println!("addr: {addr} pc: {pc} target_offset: {target_offset}");
-
                     let (disp, relative_to) =
                         match (mode, constant, line.extended, pc_disp, base_disp) {
-                            (parser::AddressModifier::Immediate, true, _, _, _)
-                            | (_, _, true, _, _) => (target_offset, AddressRelativeTo::Direct),
+                            (_, true, _, _, _) | (_, _, true, _, _) => {
+                                (target_offset, AddressRelativeTo::Direct)
+                            }
                             (_, _, _, pcd, _) if MIN_PC < pcd && pcd < MAX_PC => {
                                 (pc_disp, AddressRelativeTo::PC)
                             }
@@ -404,8 +436,6 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         });
                     }
 
-                    println!("disp: {disp:?} relto: {relative_to:?}");
-
                     let address_flags = AddressFlags {
                         mode,
                         relative_to,
@@ -424,7 +454,15 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         }
     }
 
-    let records = current_csect.build()?;
+    control_sections.push(current_csect);
+
+    let records = control_sections
+        .into_iter()
+        .map(|csect| csect.build())
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
 
     Ok((records, debug))
 }

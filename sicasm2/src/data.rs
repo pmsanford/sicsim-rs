@@ -216,7 +216,7 @@ impl AsmData {
         Ok(literal)
     }
 
-    pub fn get_ltorg(&mut self, block_id: i32, offset: usize) -> Result<Ltorg> {
+    pub fn get_ltorg(&mut self, block_id: i32, offset: usize) -> Result<Option<Ltorg>> {
         use crate::schema::ltorgs::dsl::{self, ltorgs};
         let ltorg = ltorgs
             .filter(
@@ -224,7 +224,8 @@ impl AsmData {
                     .eq(block_id)
                     .and(dsl::offset.eq(offset as i32)),
             )
-            .get_result(&mut self.conn)?;
+            .get_result(&mut self.conn)
+            .optional()?;
 
         Ok(ltorg)
     }

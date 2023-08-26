@@ -48,7 +48,7 @@ pub struct Modification {
     pub symbol: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExtDef {
     pub name: String,
     pub offset: usize,
@@ -71,6 +71,8 @@ pub enum Record {
         start: usize,
         length: usize,
     },
+    Define(Define),
+    Refer(Refer),
     Text(Text),
     Modification(Modification),
     End {
@@ -88,6 +90,26 @@ impl Display for Record {
             } => {
                 write!(f, "H{:<6}{:0>6X}{:0>6X}", name, start, length)
             }
+            Record::Define(define) => {
+                for w in define.definitions.chunks(6) {
+                    write!(f, "D")?;
+                    for d in w {
+                        write!(f, "{: <6}{:0>6X}", d.name, d.offset)?;
+                    }
+                }
+
+                Ok(())
+            }
+            Record::Refer(refer) => {
+                for w in refer.references.chunks(6) {
+                    write!(f, "R")?;
+                    for r in w {
+                        write!(f, "{: <6}", r)?;
+                    }
+                }
+
+                Ok(())
+            }
             Record::Text(text) => {
                 write!(
                     f,
@@ -96,7 +118,17 @@ impl Display for Record {
                     text.instructions
                         .iter()
                         .map(|i| match i {
-                            Data::Instruction(_) | Data::Word(_) => 3,
+                            Data::Instruction(i) => match i {
+                                Op::OneByte(_) => 1,
+                                Op::OneReg(_) | Op::TwoReg(_) | Op::Shift(_) | Op::Svc(_) => 2,
+                                Op::Variable(i) =>
+                                    if i.address_flags.extended {
+                                        4
+                                    } else {
+                                        3
+                                    },
+                            },
+                            Data::Word(_) => 3,
                             Data::Byte(bytes) => bytes.len(),
                         })
                         .sum::<usize>()

@@ -3,6 +3,7 @@ use std::{env, fs};
 
 use anyhow::Result;
 use sicasm2::assemble_program;
+use sicasm2::record::Record;
 
 fn main() -> Result<()> {
     dotenvy::dotenv()?;
@@ -19,7 +20,10 @@ fn main() -> Result<()> {
 
     let (prog, sdb) = assemble_program(&fs::read_to_string(&filename)?)?;
 
-    for record in prog {
+    for (idx, record) in prog.into_iter().enumerate() {
+        if matches!(record, Record::Header { .. }) && idx > 0 {
+            writeln!(output, "")?;
+        }
         writeln!(output, "{}", record)?;
     }
 

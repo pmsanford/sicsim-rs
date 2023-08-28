@@ -1,8 +1,7 @@
 use std::{collections::HashMap, mem, sync::OnceLock};
 
 use crate::data::AsmData;
-use crate::parser::{self, Argument, Arguments, Assembler, Directive, Value};
-use crate::pass_one;
+use crate::parser::{self, Argument, Arguments, Assembler, Directive, Expr, ExprOp, Value};
 use crate::record::{Data, Define, ExtDef, Record, Refer, Text};
 use anyhow::{anyhow, bail, Context, Result};
 use libsic::xe::op::{
@@ -151,6 +150,52 @@ impl ControlSectionBuilder {
     }
 }
 
+struct ExprMod {
+    extref: String,
+    op: ExprOp,
+}
+
+fn collect_exprs(section_name: &str, e: &Expr, data: &mut AsmData) -> Result<Vec<ExprMod>> {
+    // For now this only supports extrefs for the symbol and +/- for the op
+
+    // First symbol is always add
+    let mods = collect_exprs_recur(e, ExprOp::Add)?;
+
+    for m in mods.iter() {
+        if data.get_extref(section_name, &m.extref)?.is_none() {
+            bail!("only extrefs are supported for mods");
+        }
+    }
+
+    Ok(mods)
+}
+
+fn make_exprmod(v: &Value, op: ExprOp) -> Result<ExprMod> {
+    let Value::String(parser::Label(ref extref)) = v else {
+        bail!("expected string for extref value");
+    };
+
+    Ok(ExprMod {
+        extref: extref.to_owned(),
+        op,
+    })
+}
+
+fn collect_exprs_recur(e: &Expr, op: ExprOp) -> Result<Vec<ExprMod>> {
+    let first = make_exprmod(&e.value, op)?;
+
+    let mut rest = match &e.target {
+        parser::ExprTarget::Argument(v) => {
+            vec![make_exprmod(v, e.op)?]
+        }
+        parser::ExprTarget::Expr(e) => collect_exprs_recur(e, e.op)?,
+    };
+
+    rest.insert(0, first);
+
+    Ok(rest)
+}
+
 pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
     let lines = data.get_lines()?;
 
@@ -269,9 +314,18 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             Value::List(_) => bail!("got list argument for WORD"),
                         },
                         Argument::Expr(e) => {
-                            // TODO: Add modification record
-                            pass_one::eval_expr(&current_csect.name, e, &mut data, true)
-                                .context("for WORD")?
+                            let mods = collect_exprs(&current_csect.name, e, &mut data)?;
+
+                            for m in mods {
+                                current_csect.modifications.push(Modification {
+                                    address: addr,
+                                    length: 6,
+                                    add: m.op == ExprOp::Add,
+                                    symbol: m.extref,
+                                })
+                            }
+
+                            0
                         }
                         Argument::ExprCurrentOffset => line.offset as i32,
                     };

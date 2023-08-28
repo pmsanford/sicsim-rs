@@ -212,7 +212,7 @@ impl Op {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone, Copy)]
 pub enum ExprOp {
     Add,
     Subtract,

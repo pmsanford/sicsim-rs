@@ -341,7 +341,11 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                         let start_label = data
                             .get_label(&first_csect, &start_label)?
                             .ok_or_else(|| anyhow!("couldn't find start label {start_label}"))?;
-                        control_sections[0].set_start_offset(start_label.offset as usize);
+                        if control_sections.is_empty() {
+                            current_csect.set_start_offset(start_label.offset as usize);
+                        } else {
+                            control_sections[0].set_start_offset(start_label.offset as usize);
+                        }
 
                         let length = data.get_section_length(&current_csect.name)?;
                         if let Some(ltorg) = data.get_ltorg(line.block_id, line.offset)? {

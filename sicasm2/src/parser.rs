@@ -546,11 +546,13 @@ impl AsmArg for Option<Argument> {
         Ok(*i as u32)
     }
     fn expect_list(&self) -> Result<Vec<String>> {
-        let Some(Argument::Value(Value::List(l))) = self else {
-            bail!("expected list argument");
-        };
-
-        Ok(l.clone())
+        Ok(match self {
+            Some(Argument::Value(Value::List(l))) => l.clone(),
+            Some(Argument::Value(Value::String(s))) => {
+                vec![s.0.clone()]
+            }
+            _ => bail!("expected list argument"),
+        })
     }
 
     fn as_string(&self) -> Result<String> {

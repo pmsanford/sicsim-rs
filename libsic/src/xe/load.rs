@@ -288,16 +288,22 @@ pub struct ProgramLoader {
 }
 
 impl ProgramLoader {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn load_string(&mut self, programs: &str, start_address: u32) -> u32 {
         // This clobbers the configured program start address, if any
         // Returns the next available address
         let mut lines = programs.lines().peekable();
+        let mut programs = vec![];
         while lines.peek().is_some() {
-            self.programs.push(build_program(&mut lines));
+            programs.push(build_program(&mut lines));
         }
 
         let mut current_address = start_address;
-        for program in self.programs.iter_mut() {
+        for program in programs.iter_mut() {
+            let original_start = program.header.start_address;
             program.header.start_address = current_address;
             for (label, offset) in program.definitions.definitions.iter() {
                 self.symbols.insert(label.clone(), offset + current_address);
@@ -305,8 +311,13 @@ impl ProgramLoader {
             program.references.references.iter().for_each(|r| {
                 self.references.insert(r.clone());
             });
+            for datum in program.text.iter_mut() {
+                datum.start_address -= original_start;
+            }
             current_address += program.header.length;
         }
+
+        self.programs.append(&mut programs);
 
         current_address
     }

@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf};
 
 use libsic::{
     word::DWordExt,
-    xe::{debugger::SdbDebugger, load::load_program_at, vm::SicXeVm},
+    xe::{debugger::SdbDebugger, load::ProgramLoader, vm::SicXeVm},
     WordExt,
 };
 
@@ -28,32 +28,35 @@ fn read_ps(vm: &mut SicXeVm, address: u32) {
     println!("F: {:#08x}", vm.dword_at(address + 24).unwrap().as_u64());
 }
 
-fn load_program(vm: &mut SicXeVm, debugger: &mut SdbDebugger, name: &str, load_at: u32) {
+fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &str, load_at: u32) {
     let mut path = PathBuf::from("./src/bin/");
     path.push(name);
     let program = fs::read_to_string(path.with_extension("ebj")).unwrap();
     let program_sdb = fs::read_to_string(path.with_extension("sdb")).unwrap();
-    load_program_at(vm, &program, load_at);
+    loader.load_string(&program, load_at);
     debugger.load(load_at, program_sdb).unwrap();
 }
 
 fn main() {
     let mut vm = SicXeVm::empty();
     let mut debugger = SdbDebugger::new();
+    let mut loader = ProgramLoader::new();
 
-    load_program(&mut vm, &mut debugger, "bootloader", 0x0);
+    load_program(&mut debugger, &mut loader, "bootloader", 0x0);
 
-    load_program(&mut vm, &mut debugger, "work_areas", 0x100);
+    load_program(&mut debugger, &mut loader, "work_areas", 0x100);
 
-    load_program(&mut vm, &mut debugger, "program_int", 0x30);
+    load_program(&mut debugger, &mut loader, "program_int", 0x30);
 
-    load_program(&mut vm, &mut debugger, "dispatcher", 0x200);
+    load_program(&mut debugger, &mut loader, "dispatcher", 0x200);
 
-    load_program(&mut vm, &mut debugger, "wake_counter", 0x7D0);
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7D0);
 
-    load_program(&mut vm, &mut debugger, "wake_counter", 0x7E0);
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7E0);
 
-    load_program(&mut vm, &mut debugger, "wake_counter", 0x7F0);
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7F0);
+
+    loader.copy_all_to(&mut vm);
 
     vm.debugger = Some(Box::new(debugger.clone()));
 

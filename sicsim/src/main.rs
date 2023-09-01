@@ -13,6 +13,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use libsic::{
+    word::DWordExt,
     xe::{debugger::SdbDebugger, load::ProgramLoader, vm::SicXeVm},
     WordExt,
 };
@@ -138,6 +139,24 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
             let widths = vec![Constraint::Length(13); 2];
             let symbols = Table::new(rows).widths(&widths);
             let area = Rect::new(0, 0, 50, 50);
+            frame.render_widget(symbols, area);
+
+            let rows = vec![
+                Row::new(vec!["A".to_owned(), format!("{:0>6X}", vm.A.as_u32())]),
+                Row::new(vec!["X".to_owned(), format!("{:0>6X}", vm.X.as_u32())]),
+                Row::new(vec!["L".to_owned(), format!("{:0>6X}", vm.L.as_u32())]),
+                Row::new(vec!["B".to_owned(), format!("{:0>6X}", vm.B.as_u32())]),
+                Row::new(vec!["S".to_owned(), format!("{:0>6X}", vm.S.as_u32())]),
+                Row::new(vec!["T".to_owned(), format!("{:0>6X}", vm.T.as_u32())]),
+                Row::new(vec!["F".to_owned(), format!("{:0>12X}", vm.F.as_u64())]),
+                Row::new(vec!["PC".to_owned(), format!("{:0>6X}", vm.PC.as_u32())]),
+                Row::new(vec!["SW".to_owned(), format!("{:0>6X}", vm.SW.as_u32())]),
+                Row::new(vec!["I".to_owned(), format!("{:0>6X}", vm.I.as_u32())]),
+            ];
+
+            let widths = vec![Constraint::Length(2), Constraint::Length(12)];
+            let symbols = Table::new(rows).widths(&widths);
+            let area = Rect::new(25, 0, 50, 50);
             frame.render_widget(symbols, area);
         })?;
         if event::poll(Duration::from_millis(250))? {

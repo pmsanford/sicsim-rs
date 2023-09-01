@@ -253,6 +253,10 @@ impl SdbDebugger {
         None
     }
 
+    pub fn get_labels(&self) -> HashMap<String, HashMap<String, u32>> {
+        self.labels.clone()
+    }
+
     pub fn address_for_label(&self, program: &str, label: &str) -> Option<u32> {
         self.labels
             .get(label)

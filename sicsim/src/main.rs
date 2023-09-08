@@ -109,7 +109,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                 .style(Style::default().fg(Color::White))
                 .widths(&widths)
                 .column_spacing(1);
-            let area = Rect::new(50, 0, 75, 50);
+            let area = Rect::new(0, 20, 75, 30);
             frame.render_widget(greeting, area);
 
             let mut flattened = labels

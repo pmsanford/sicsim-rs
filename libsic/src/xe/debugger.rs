@@ -86,82 +86,191 @@ fn format_sw(prev: Word, cur: Word) -> String {
     diff.join(", ")
 }
 
-impl RegState {
-    fn diff(&self, other: &RegState) -> Option<String> {
-        let mut diffs = Vec::new();
-        if self.A != other.A {
-            diffs.push(format!(
+#[derive(Clone, Copy, Debug, Default)]
+struct RegDiff<T: Clone + Copy + std::fmt::Debug + Default> {
+    current: T,
+    previous: T,
+}
+
+#[allow(non_snake_case)]
+#[derive(Clone, Copy, Debug, Default)]
+struct StateDiff {
+    pub A: Option<RegDiff<Word>>,  // 0
+    pub X: Option<RegDiff<Word>>,  // 1
+    pub L: Option<RegDiff<Word>>,  // 2
+    pub B: Option<RegDiff<Word>>,  // 3
+    pub S: Option<RegDiff<Word>>,  // 4
+    pub T: Option<RegDiff<Word>>,  // 5
+    pub F: Option<RegDiff<DWord>>, // 6
+    pub PC: Option<RegDiff<Word>>, // 8
+    pub SW: Option<RegDiff<Word>>, // 9
+    pub I: Option<RegDiff<Word>>,
+}
+
+impl Display for StateDiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(RegDiff { current, previous }) = self.A {
+            write!(
+                f,
                 "A {:#08X} -> {:#08X}",
-                self.A.as_u32(),
-                other.A.as_u32()
-            ));
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.X {
+            write!(
+                f,
+                "X {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.L {
+            write!(
+                f,
+                "X {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.B {
+            write!(
+                f,
+                "B {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.S {
+            write!(
+                f,
+                "S {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.T {
+            write!(
+                f,
+                "T {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.F {
+            write!(f, "F {} -> {}", previous.as_f64(), current.as_f64())?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.A {
+            let diff = current.as_u32() as i64 - previous.as_u32() as i64;
+            // Don't show automatic increment
+            if diff < 3 || diff > 4 {
+                write!(
+                    f,
+                    "A {:#08X} -> {:#08X}",
+                    previous.as_u32(),
+                    current.as_u32()
+                )?;
+            }
+        }
+
+        if let Some(RegDiff { current, previous }) = self.SW {
+            write!(f, "SW [{}]", format_sw(previous, current))?;
+        }
+
+        if let Some(RegDiff { current, previous }) = self.I {
+            write!(
+                f,
+                "I {:#08X} -> {:#08X}",
+                previous.as_u32(),
+                current.as_u32()
+            )?;
+        }
+
+        Ok(())
+    }
+}
+
+impl RegState {
+    fn diff(&self, other: &RegState) -> StateDiff {
+        let mut diffs = StateDiff::default();
+        if self.A != other.A {
+            diffs.A = Some(RegDiff {
+                previous: self.A,
+                current: other.A,
+            });
         }
 
         if self.X != other.X {
-            diffs.push(format!(
-                "X {:#08X} -> {:#08X}",
-                self.X.as_u32(),
-                other.X.as_u32()
-            ));
+            diffs.X = Some(RegDiff {
+                previous: self.X,
+                current: other.X,
+            });
         }
 
         if self.L != other.L {
-            diffs.push(format!(
-                "L {:#08X} -> {:#08X}",
-                self.L.as_u32(),
-                other.L.as_u32()
-            ));
+            diffs.L = Some(RegDiff {
+                previous: self.L,
+                current: other.L,
+            });
         }
 
         if self.B != other.B {
-            diffs.push(format!(
-                "B {:#08X} -> {:#08X}",
-                self.B.as_u32(),
-                other.B.as_u32()
-            ));
+            diffs.B = Some(RegDiff {
+                previous: self.B,
+                current: other.B,
+            });
         }
 
         if self.S != other.S {
-            diffs.push(format!(
-                "S {:#08X} -> {:#08X}",
-                self.S.as_u32(),
-                other.S.as_u32()
-            ));
+            diffs.S = Some(RegDiff {
+                previous: self.S,
+                current: other.S,
+            });
         }
 
         if self.T != other.T {
-            diffs.push(format!(
-                "T {:#08X} -> {:#08X}",
-                self.T.as_u32(),
-                other.T.as_u32()
-            ));
+            diffs.T = Some(RegDiff {
+                previous: self.T,
+                current: other.T,
+            });
         }
 
         if self.F != other.F {
-            diffs.push(format!("F {} -> {}", self.F.as_f64(), other.F.as_f64()));
+            diffs.F = Some(RegDiff {
+                previous: self.F,
+                current: other.F,
+            });
         }
 
-        if self.PC != other.PC && (other.PC.as_u32() as i32 - self.PC.as_u32() as i32) > 4 {
-            diffs.push(format!(
-                "PC {:#08X} -> {:#08X}",
-                self.PC.as_u32(),
-                other.PC.as_u32()
-            ));
+        if self.PC != other.PC {
+            diffs.PC = Some(RegDiff {
+                previous: self.PC,
+                current: other.PC,
+            });
         }
 
         if self.SW != other.SW {
-            diffs.push(format!("SW [{}]", format_sw(self.SW, other.SW)));
+            diffs.SW = Some(RegDiff {
+                previous: self.SW,
+                current: other.SW,
+            });
         }
 
         if self.I != other.I {
-            diffs.push(format!("I {} -> {}", self.I.as_u32(), other.I.as_u32()));
+            diffs.I = Some(RegDiff {
+                previous: self.I,
+                current: other.I,
+            });
         }
 
-        if diffs.is_empty() {
-            None
-        } else {
-            Some(diffs.join(", "))
-        }
+        diffs
     }
 }
 
@@ -353,7 +462,8 @@ impl Debugger for SdbDebugger {
             I: vm_state.I,
         };
 
-        if let Some(diff) = self.last_reg_state.diff(&new_reg_state) {
+        let diff = self.last_reg_state.diff(&new_reg_state).to_string();
+        if !diff.is_empty() {
             println!("  {}", diff);
         }
     }

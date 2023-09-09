@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, fmt::Display};
 
-use sicdbg::Sdb;
+use sicdbg::{Sdb, SdbLine};
 
 use crate::{
     word::{DWord, DWordExt, Word},
@@ -170,7 +170,7 @@ impl Display for StateDiff {
         if let Some(RegDiff { current, previous }) = self.A {
             let diff = current.as_u32() as i64 - previous.as_u32() as i64;
             // Don't show automatic increment
-            if diff < 3 || diff > 4 {
+            if !(3..=4).contains(&diff) {
                 write!(
                     f,
                     "A {:#08X} -> {:#08X}",
@@ -292,31 +292,27 @@ impl Display for LoadError {
 }
 
 #[derive(Clone, Debug)]
-pub struct SdbDebugger {
-    verbose: bool,
+pub struct RuntimeTracker {
     // TODO: Is there a better way to do this mapping?
     programs: HashMap<(u32, u32), LoadedProgram>,
     labels: HashMap<String, HashMap<String, u32>>,
     last_reg_state: RegState,
 }
 
-impl SdbDebugger {
-    pub fn new() -> Self {
-        SdbDebugger {
-            verbose: false,
-            programs: HashMap::new(),
-            last_reg_state: RegState::default(),
-            labels: HashMap::new(),
-        }
-    }
-
-    pub fn verbose() -> Self {
-        SdbDebugger {
-            verbose: true,
-            programs: HashMap::new(),
-            last_reg_state: RegState::default(),
-            labels: HashMap::new(),
-        }
+impl RuntimeTracker {
+    pub fn save_reg_state(&mut self, vm: &super::vm::SicXeVm) {
+        self.last_reg_state = RegState {
+            A: vm.A,
+            X: vm.X,
+            L: vm.L,
+            B: vm.B,
+            S: vm.S,
+            T: vm.T,
+            F: vm.F,
+            PC: vm.PC,
+            SW: vm.SW,
+            I: vm.I,
+        };
     }
 
     pub fn load(&mut self, loaded_at: u32, sdb: String) -> Result<(), LoadError> {
@@ -352,6 +348,41 @@ impl SdbDebugger {
         Ok(())
     }
 
+    fn find_target_address(
+        &self,
+        vm: &super::vm::SicXeVm,
+        op: &super::op::Op,
+    ) -> (Option<u32>, Option<u32>) {
+        if let Op::Variable(op) = op {
+            if let Ok(address) = vm.debug_target_address(op, true) {
+                if op.address_flags.mode == AddressMode::Immediate {
+                    (None, None)
+                } else if op.address_flags.mode == AddressMode::Indirect {
+                    let src_address = vm
+                        .debug_calc_address(op.address, &AddressFlags::default(), true)
+                        .unwrap();
+                    (Some(address), Some(src_address))
+                } else {
+                    (Some(address), None)
+                }
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        }
+    }
+
+    fn find_line_for(&self, address: u32) -> Option<&SdbLine> {
+        if let Some(program) = self.find_program(address) {
+            let offset = address - program.loaded_at;
+            if let Some(line) = program.sdb.offset_map.get(&offset) {
+                return Some(&program.sdb.lines[*line]);
+            }
+        }
+        None
+    }
+
     fn find_program(&self, pc: u32) -> Option<&LoadedProgram> {
         for ((start, end), program) in self.programs.iter() {
             if pc >= *start && pc <= *end {
@@ -374,6 +405,48 @@ impl SdbDebugger {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct SdbDebugger {
+    verbose: bool,
+    tracker: RuntimeTracker,
+}
+
+impl SdbDebugger {
+    pub fn new() -> Self {
+        SdbDebugger {
+            verbose: false,
+            tracker: RuntimeTracker {
+                programs: HashMap::new(),
+                last_reg_state: RegState::default(),
+                labels: HashMap::new(),
+            },
+        }
+    }
+
+    pub fn load(&mut self, loaded_at: u32, sdb: String) -> Result<(), LoadError> {
+        self.tracker.load(loaded_at, sdb)
+    }
+
+    pub fn address_for_label(&self, program: &str, label: &str) -> Option<u32> {
+        self.tracker.address_for_label(program, label)
+    }
+
+    pub fn get_labels(&self) -> HashMap<String, HashMap<String, u32>> {
+        self.tracker.get_labels()
+    }
+
+    pub fn verbose() -> Self {
+        SdbDebugger {
+            verbose: true,
+            tracker: RuntimeTracker {
+                programs: HashMap::new(),
+                last_reg_state: RegState::default(),
+                labels: HashMap::new(),
+            },
+        }
+    }
+}
+
 impl Default for SdbDebugger {
     fn default() -> Self {
         Self::new()
@@ -382,46 +455,11 @@ impl Default for SdbDebugger {
 
 impl Debugger for SdbDebugger {
     fn op_read(&mut self, vm_state: &super::vm::SicXeVm, op: &super::op::Op) {
-        self.last_reg_state = RegState {
-            A: vm_state.A,
-            X: vm_state.X,
-            L: vm_state.L,
-            B: vm_state.B,
-            S: vm_state.S,
-            T: vm_state.T,
-            F: vm_state.F,
-            PC: vm_state.PC,
-            SW: vm_state.SW,
-            I: vm_state.I,
-        };
+        self.tracker.save_reg_state(vm_state);
         let pc = vm_state.PC.as_u32();
-        let program = self.find_program(pc);
+        let program = self.tracker.find_program(pc);
         print!("({:#08X}): {}", pc, op.mnemonic());
-        let target_address = if let Op::Variable(op) = op {
-            if let Ok(address) = vm_state.debug_target_address(op, true) {
-                if op.address_flags.mode == AddressMode::Immediate {
-                    print!(" #{}", address);
-                    None
-                } else if op.address_flags.mode == AddressMode::Indirect {
-                    let src_address = vm_state
-                        .debug_calc_address(op.address, &AddressFlags::default(), true)
-                        .unwrap();
-                    print!(" @{:#08X} -> {:#08X}", src_address, address);
-                    Some(address)
-                } else {
-                    print!(
-                        " -> {}{:#08X}",
-                        if op.address_flags.extended { "+" } else { "" },
-                        address
-                    );
-                    Some(address)
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let (target_address, _) = self.tracker.find_target_address(vm_state, op);
         if self.verbose {
             print!(" - {:?}", op);
         }
@@ -437,13 +475,16 @@ impl Debugger for SdbDebugger {
             }
         }
         if let Some(target_address) = target_address {
-            if let Some(target_program) = self.find_program(target_address) {
+            if let Some(target_line) = self.tracker.find_line_for(target_address) {
+                let target_program = self
+                    .tracker
+                    .find_program(target_address)
+                    .expect("found line but not program");
                 let name = &target_program.sdb.name;
-                let offset = target_address - target_program.loaded_at;
-                if let Some(line) = target_program.sdb.offset_map.get(&offset) {
-                    let line = &target_program.sdb.lines[*line];
-                    println!("    Target: [{}] {}: {}", name, line.line_number, line.text);
-                }
+                println!(
+                    "    Target: [{}] {}: {}",
+                    name, target_line.line_number, target_line.text
+                );
             }
         }
     }
@@ -462,7 +503,7 @@ impl Debugger for SdbDebugger {
             I: vm_state.I,
         };
 
-        let diff = self.last_reg_state.diff(&new_reg_state).to_string();
+        let diff = self.tracker.last_reg_state.diff(&new_reg_state).to_string();
         if !diff.is_empty() {
             println!("  {}", diff);
         }

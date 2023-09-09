@@ -2,7 +2,7 @@ use std::{fs, path::PathBuf};
 
 use libsic::{
     word::DWordExt,
-    xe::{debugger::SdbDebugger, load::ProgramLoader, vm::SicXeVm},
+    xe::{debugger::SdbConsoleDebugger, load::ProgramLoader, vm::SicXeVm},
     WordExt,
 };
 
@@ -28,7 +28,12 @@ fn read_ps(vm: &mut SicXeVm, address: u32) {
     println!("F: {:#08x}", vm.dword_at(address + 24).unwrap().as_u64());
 }
 
-fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &str, load_at: u32) {
+fn load_program(
+    debugger: &mut SdbConsoleDebugger,
+    loader: &mut ProgramLoader,
+    name: &str,
+    load_at: u32,
+) {
     let mut path = PathBuf::from("./src/bin/");
     path.push(name);
     let program = fs::read_to_string(path.with_extension("ebj")).unwrap();
@@ -39,7 +44,7 @@ fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &s
 
 fn main() {
     let mut vm = SicXeVm::empty();
-    let mut debugger = SdbDebugger::new();
+    let mut debugger = SdbConsoleDebugger::new();
     let mut loader = ProgramLoader::new();
 
     load_program(&mut debugger, &mut loader, "bootloader", 0x0);

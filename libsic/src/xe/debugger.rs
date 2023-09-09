@@ -23,7 +23,7 @@ struct LoadedProgram {
 
 #[allow(non_snake_case)]
 #[derive(Clone, Debug, Default)]
-struct RegState {
+pub struct RegState {
     pub A: Word,  // 0
     pub X: Word,  // 1
     pub L: Word,  // 2
@@ -87,14 +87,20 @@ fn format_sw(prev: Word, cur: Word) -> String {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-struct RegDiff<T: Clone + Copy + std::fmt::Debug + Default> {
+pub struct RegDiff<T: Clone + Copy + std::fmt::Debug + Default> {
     current: T,
     previous: T,
 }
 
+impl RegDiff<Word> {
+    pub fn disp(&self) -> i64 {
+        self.current.as_u32() as i64 - self.previous.as_u32() as i64
+    }
+}
+
 #[allow(non_snake_case)]
 #[derive(Clone, Copy, Debug, Default)]
-struct StateDiff {
+pub struct StateDiff {
     pub A: Option<RegDiff<Word>>,  // 0
     pub X: Option<RegDiff<Word>>,  // 1
     pub L: Option<RegDiff<Word>>,  // 2
@@ -105,6 +111,25 @@ struct StateDiff {
     pub PC: Option<RegDiff<Word>>, // 8
     pub SW: Option<RegDiff<Word>>, // 9
     pub I: Option<RegDiff<Word>>,
+}
+
+impl StateDiff {
+    pub fn is_empty(&self) -> bool {
+        self.A.is_none()
+            && self.X.is_none()
+            && self.L.is_none()
+            && self.B.is_none()
+            && self.S.is_none()
+            && self.T.is_none()
+            && self.F.is_none()
+            && self.SW.is_none()
+            && self.I.is_none()
+            && !self.pc_jumped()
+    }
+
+    pub fn pc_jumped(&self) -> bool {
+        self.PC.map(|pc| !(3..=4).contains(&pc.disp())).unwrap_or(false)
+    }
 }
 
 impl Display for StateDiff {
@@ -167,13 +192,12 @@ impl Display for StateDiff {
             write!(f, "F {} -> {}", previous.as_f64(), current.as_f64())?;
         }
 
-        if let Some(RegDiff { current, previous }) = self.A {
-            let diff = current.as_u32() as i64 - previous.as_u32() as i64;
+        if let Some(RegDiff { current, previous }) = self.PC {
             // Don't show automatic increment
-            if !(3..=4).contains(&diff) {
+            if self.pc_jumped() {
                 write!(
                     f,
-                    "A {:#08X} -> {:#08X}",
+                    "PC {:#08X} -> {:#08X}",
                     previous.as_u32(),
                     current.as_u32()
                 )?;
@@ -292,14 +316,15 @@ impl Display for LoadError {
 }
 
 #[derive(Clone, Debug)]
-pub struct RuntimeTracker {
+pub struct SdbDebugger {
     // TODO: Is there a better way to do this mapping?
     programs: HashMap<(u32, u32), LoadedProgram>,
     labels: HashMap<String, HashMap<String, u32>>,
     last_reg_state: RegState,
+    last_state_change: Option<StateDiff>,
 }
 
-impl RuntimeTracker {
+impl SdbDebugger {
     pub fn save_reg_state(&mut self, vm: &super::vm::SicXeVm) {
         self.last_reg_state = RegState {
             A: vm.A,
@@ -313,6 +338,14 @@ impl RuntimeTracker {
             SW: vm.SW,
             I: vm.I,
         };
+    }
+
+    pub fn last_change(&self) -> StateDiff {
+        self.last_state_change.unwrap_or_default()
+    }
+
+    pub fn last_state(&self) -> RegState {
+        self.last_reg_state.clone()
     }
 
     pub fn load(&mut self, loaded_at: u32, sdb: String) -> Result<(), LoadError> {
@@ -405,20 +438,46 @@ impl RuntimeTracker {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SdbDebugger {
-    verbose: bool,
-    tracker: RuntimeTracker,
+impl Debugger for SdbDebugger {
+    fn op_read(&mut self, vm_state: &super::vm::SicXeVm, _op: &Op) {
+        self.save_reg_state(vm_state);
+    }
+
+    fn op_executed(&mut self, vm_state: &super::vm::SicXeVm, _op: &Op) {
+        let new_reg_state = RegState {
+            A: vm_state.A,
+            X: vm_state.X,
+            L: vm_state.L,
+            B: vm_state.B,
+            S: vm_state.S,
+            T: vm_state.T,
+            F: vm_state.F,
+            PC: vm_state.PC,
+            SW: vm_state.SW,
+            I: vm_state.I,
+        };
+
+        self.last_state_change = Some(self.last_reg_state.diff(&new_reg_state));
+    }
+
+    fn interrupt(&mut self, _vm_state: &super::vm::SicXeVm, _interrupt: super::vm::Interrupt) {}
 }
 
-impl SdbDebugger {
+#[derive(Clone, Debug)]
+pub struct SdbConsoleDebugger {
+    verbose: bool,
+    tracker: SdbDebugger,
+}
+
+impl SdbConsoleDebugger {
     pub fn new() -> Self {
-        SdbDebugger {
+        SdbConsoleDebugger {
             verbose: false,
-            tracker: RuntimeTracker {
+            tracker: SdbDebugger {
                 programs: HashMap::new(),
                 last_reg_state: RegState::default(),
                 labels: HashMap::new(),
+                last_state_change: None,
             },
         }
     }
@@ -436,26 +495,27 @@ impl SdbDebugger {
     }
 
     pub fn verbose() -> Self {
-        SdbDebugger {
+        SdbConsoleDebugger {
             verbose: true,
-            tracker: RuntimeTracker {
+            tracker: SdbDebugger {
                 programs: HashMap::new(),
                 last_reg_state: RegState::default(),
                 labels: HashMap::new(),
+                last_state_change: None,
             },
         }
     }
 }
 
-impl Default for SdbDebugger {
+impl Default for SdbConsoleDebugger {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Debugger for SdbDebugger {
+impl Debugger for SdbConsoleDebugger {
     fn op_read(&mut self, vm_state: &super::vm::SicXeVm, op: &super::op::Op) {
-        self.tracker.save_reg_state(vm_state);
+        self.tracker.op_read(vm_state, op);
         let pc = vm_state.PC.as_u32();
         let program = self.tracker.find_program(pc);
         print!("({:#08X}): {}", pc, op.mnemonic());
@@ -489,27 +549,16 @@ impl Debugger for SdbDebugger {
         }
     }
 
-    fn op_executed(&mut self, vm_state: &super::vm::SicXeVm, _op: &super::op::Op) {
-        let new_reg_state = RegState {
-            A: vm_state.A,
-            X: vm_state.X,
-            L: vm_state.L,
-            B: vm_state.B,
-            S: vm_state.S,
-            T: vm_state.T,
-            F: vm_state.F,
-            PC: vm_state.PC,
-            SW: vm_state.SW,
-            I: vm_state.I,
-        };
-
-        let diff = self.tracker.last_reg_state.diff(&new_reg_state).to_string();
+    fn op_executed(&mut self, vm_state: &super::vm::SicXeVm, op: &super::op::Op) {
+        self.tracker.op_executed(vm_state, op);
+        let diff = self.tracker.last_change();
         if !diff.is_empty() {
             println!("  {}", diff);
         }
     }
 
     fn interrupt(&mut self, vm_state: &super::vm::SicXeVm, interrupt: super::vm::Interrupt) {
+        self.tracker.interrupt(vm_state, interrupt);
         let pc = vm_state.PC.as_u32();
         println!("({:#08X}): Saw interrupt {:?}", pc, interrupt);
     }

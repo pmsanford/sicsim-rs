@@ -14,7 +14,7 @@ use crossterm::{
 };
 use libsic::{
     word::DWordExt,
-    xe::{debugger::SdbDebugger, load::ProgramLoader, vm::SicXeVm},
+    xe::{debugger::SdbConsoleDebugger, load::ProgramLoader, vm::SicXeVm},
     WordExt,
 };
 use ratatui::{
@@ -53,7 +53,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
     let cont = fs::read_to_string("test.ebj")?;
     let sdb = fs::read_to_string("test.sdb")?;
 
-    let mut debugger = SdbDebugger::new();
+    let mut debugger = SdbConsoleDebugger::new();
     debugger.load(0, sdb).unwrap();
     let labels = debugger.get_labels();
 

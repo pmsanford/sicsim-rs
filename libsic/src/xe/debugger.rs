@@ -128,7 +128,9 @@ impl StateDiff {
     }
 
     pub fn pc_jumped(&self) -> bool {
-        self.PC.map(|pc| !(3..=4).contains(&pc.disp())).unwrap_or(false)
+        self.PC
+            .map(|pc| !(3..=4).contains(&pc.disp()))
+            .unwrap_or(false)
     }
 }
 
@@ -315,16 +317,30 @@ impl Display for LoadError {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct SdbDebugger {
     // TODO: Is there a better way to do this mapping?
     programs: HashMap<(u32, u32), LoadedProgram>,
     labels: HashMap<String, HashMap<String, u32>>,
     last_reg_state: RegState,
+    last_op: Option<Op>,
+    last_target: (Option<u32>, Option<u32>),
     last_state_change: Option<StateDiff>,
 }
 
 impl SdbDebugger {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_last_op(&self) -> Option<Op> {
+        self.last_op
+    }
+
+    pub fn save_last_op(&mut self, op: Op) {
+        self.last_op = Some(op)
+    }
+
     pub fn save_reg_state(&mut self, vm: &super::vm::SicXeVm) {
         self.last_reg_state = RegState {
             A: vm.A,
@@ -346,6 +362,10 @@ impl SdbDebugger {
 
     pub fn last_state(&self) -> RegState {
         self.last_reg_state.clone()
+    }
+
+    pub fn get_last_target(&self) -> (Option<u32>, Option<u32>) {
+        self.last_target
     }
 
     pub fn load(&mut self, loaded_at: u32, sdb: String) -> Result<(), LoadError> {
@@ -439,11 +459,14 @@ impl SdbDebugger {
 }
 
 impl Debugger for SdbDebugger {
-    fn op_read(&mut self, vm_state: &super::vm::SicXeVm, _op: &Op) {
+    fn op_read(&mut self, vm_state: &super::vm::SicXeVm, op: &Op) {
         self.save_reg_state(vm_state);
+        let (target, indirect) = self.find_target_address(vm_state, op);
+        self.last_target = (target, indirect);
     }
 
-    fn op_executed(&mut self, vm_state: &super::vm::SicXeVm, _op: &Op) {
+    fn op_executed(&mut self, vm_state: &super::vm::SicXeVm, op: &Op) {
+        self.save_last_op(*op);
         let new_reg_state = RegState {
             A: vm_state.A,
             X: vm_state.X,
@@ -473,12 +496,7 @@ impl SdbConsoleDebugger {
     pub fn new() -> Self {
         SdbConsoleDebugger {
             verbose: false,
-            tracker: SdbDebugger {
-                programs: HashMap::new(),
-                last_reg_state: RegState::default(),
-                labels: HashMap::new(),
-                last_state_change: None,
-            },
+            tracker: SdbDebugger::new(),
         }
     }
 
@@ -497,12 +515,7 @@ impl SdbConsoleDebugger {
     pub fn verbose() -> Self {
         SdbConsoleDebugger {
             verbose: true,
-            tracker: SdbDebugger {
-                programs: HashMap::new(),
-                last_reg_state: RegState::default(),
-                labels: HashMap::new(),
-                last_state_change: None,
-            },
+            tracker: SdbDebugger::new(),
         }
     }
 }

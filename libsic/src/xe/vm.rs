@@ -12,12 +12,27 @@ use crate::word::{
 use crate::xe::op::SicOp;
 use std::cmp::Ordering;
 use std::mem;
+use std::sync::{Arc, Mutex};
 use std::{collections::HashMap, fmt::Debug};
 
 pub trait Debugger {
     fn op_read(&mut self, vm_state: &SicXeVm, op: &Op);
     fn op_executed(&mut self, vm_state: &SicXeVm, op: &Op);
     fn interrupt(&mut self, vm_state: &SicXeVm, interrupt: Interrupt);
+}
+
+impl<T: Debugger> Debugger for Arc<Mutex<T>> {
+    fn op_read(&mut self, vm_state: &SicXeVm, op: &Op) {
+        self.lock().expect("mutex").op_read(vm_state, op);
+    }
+
+    fn op_executed(&mut self, vm_state: &SicXeVm, op: &Op) {
+        self.lock().expect("mutext").op_executed(vm_state, op);
+    }
+
+    fn interrupt(&mut self, vm_state: &SicXeVm, interrupt: Interrupt) {
+        self.lock().expect("mutext").interrupt(vm_state, interrupt);
+    }
 }
 
 pub struct PrintlnDebugger;

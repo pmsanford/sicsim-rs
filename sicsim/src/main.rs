@@ -1,9 +1,12 @@
 #![allow(unused)]
 use std::{
+    cell::RefCell,
     collections::HashMap,
     error::Error,
     fs,
     io::{self, Stdout},
+    rc::Rc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -14,7 +17,11 @@ use crossterm::{
 };
 use libsic::{
     word::DWordExt,
-    xe::{debugger::SdbConsoleDebugger, load::ProgramLoader, vm::SicXeVm},
+    xe::{
+        debugger::{SdbConsoleDebugger, SdbDebugger},
+        load::ProgramLoader,
+        vm::SicXeVm,
+    },
     WordExt,
 };
 use ratatui::{
@@ -47,13 +54,20 @@ fn restore_terminal(
     Ok(terminal.show_cursor()?)
 }
 
+fn address_to_coords(address: u32) -> (usize, usize) {
+    let row = address / 16;
+    let idx = address % 16 + 1;
+
+    (row as usize, idx as usize)
+}
+
 fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
     let mut vm = SicXeVm::empty();
     let mut loader = ProgramLoader::new();
     let cont = fs::read_to_string("test.ebj")?;
     let sdb = fs::read_to_string("test.sdb")?;
 
-    let mut debugger = SdbConsoleDebugger::new();
+    let mut debugger = SdbDebugger::new();
     debugger.load(0, sdb).unwrap();
     let labels = debugger.get_labels();
 
@@ -61,13 +75,14 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
 
     loader.copy_all_to(&mut vm);
 
-    //vm.debugger = Some(Box::new(debugger));
+    let debugger = Arc::new(Mutex::new(debugger));
+
+    vm.debugger = Some(Box::new(debugger.clone()));
 
     loop {
         terminal.draw(|frame| {
-            let pc = vm.PC.as_u32() as usize;
-            let pc_row = pc / 16;
-            let pc_idx = pc % 16 + 1;
+            let pc = vm.PC.as_u32();
+            let (pc_row, pc_idx) = address_to_coords(pc);
             let mut rows = vm.memory[..48]
                 .iter()
                 .map(|b| format!("{:0>2X}", b))
@@ -82,11 +97,30 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                         .enumerate()
                         .map(|(cell_idx, val)| {
                             let cell = Cell::from(val);
-                            if idx == pc_row && cell_idx == pc_idx {
+                            let (inst_size, target) = {
+                                let debugger = debugger.lock().expect("mutex read");
+                                let inst_size = debugger.get_last_op().map_or(1, |op| op.len());
+                                let (target, _) = debugger.get_last_target();
+
+                                (inst_size, target)
+                            };
+                            if idx == pc_row
+                                && (pc_idx..pc_idx + inst_size as usize).contains(&cell_idx)
+                            {
                                 cell.style(
                                     Style::default()
                                         .add_modifier(Modifier::BOLD)
                                         .fg(Color::Yellow),
+                                )
+                            } else if target
+                                .map(address_to_coords)
+                                .map(|(row, col)| idx == row && (col..col + 3).contains(&cell_idx))
+                                .unwrap_or(false)
+                            {
+                                cell.style(
+                                    Style::default()
+                                        .add_modifier(Modifier::BOLD)
+                                        .fg(Color::Blue),
                                 )
                             } else {
                                 cell

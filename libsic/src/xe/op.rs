@@ -79,7 +79,7 @@ impl Register {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TwoReg {
     pub opcode: TwoRegOp,
     pub r1: Register,
@@ -96,7 +96,7 @@ impl SicOp for TwoReg {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct OneReg {
     pub opcode: OneRegOp,
     pub r1: Register,
@@ -112,7 +112,7 @@ impl SicOp for OneReg {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Shift {
     pub opcode: ShiftOp,
     pub r1: Register,
@@ -199,7 +199,7 @@ impl AddressMode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Variable {
     pub opcode: VariableOp,
     pub address_flags: AddressFlags,
@@ -218,7 +218,7 @@ impl SicOp for Variable {
 
 pub const SVC: u8 = 0xB0;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Op {
     OneByte(OneByteOp),
     OneReg(OneReg),

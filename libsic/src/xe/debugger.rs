@@ -437,7 +437,7 @@ impl SdbDebugger {
         }
     }
 
-    fn find_line_for(&self, address: u32) -> Option<&SdbLine> {
+    pub fn find_line_for(&self, address: u32) -> Option<&SdbLine> {
         if let Some(program) = self.find_program(address) {
             let offset = address - program.loaded_at;
             if let Some(line) = program.sdb.offset_map.get(&offset) {

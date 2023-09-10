@@ -83,7 +83,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
         terminal.draw(|frame| {
             let pc = vm.PC.as_u32();
             let (pc_row, pc_idx) = address_to_coords(pc);
-            let mut rows = vm.memory[..48]
+            let mut rows = vm.memory[..50 * 16]
                 .iter()
                 .map(|b| format!("{:0>2X}", b))
                 .collect::<Vec<_>>()
@@ -143,12 +143,12 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
             let mut widths = vec![Constraint::Length(2); 16];
             widths.insert(0, Constraint::Length(7));
 
-            let greeting = Table::new(rows)
+            let memory = Table::new(rows)
                 .style(Style::default().fg(Color::White))
                 .widths(&widths)
                 .column_spacing(1);
-            let area = Rect::new(0, 20, 75, 30);
-            frame.render_widget(greeting, area);
+            let area = Rect::new(0, 0, 75, 50);
+            frame.render_widget(memory, area);
 
             let mut flattened = labels
                 .iter()
@@ -176,8 +176,19 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
 
             let widths = vec![Constraint::Length(13); 2];
             let symbols = Table::new(rows).widths(&widths);
-            let area = Rect::new(0, 0, 50, 50);
+            let area = Rect::new(60, 13, 34, 35);
             frame.render_widget(symbols, area);
+
+            let line = {
+                let debugger = debugger.lock().expect("read mutex");
+                let line = debugger.find_line_for(pc);
+                line.map(|line| line.text.clone())
+                    .unwrap_or_else(String::new)
+            };
+
+            let source = Paragraph::new(line);
+            let area = Rect::new(60, 11, 34, 1);
+            frame.render_widget(source, area);
 
             let rows = {
                 let debugger = debugger.lock().expect("read mutex");
@@ -227,9 +238,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
             };
 
             let widths = vec![Constraint::Length(2), Constraint::Length(12)];
-            let symbols = Table::new(rows).widths(&widths);
-            let area = Rect::new(25, 0, 50, 50);
-            frame.render_widget(symbols, area);
+            let registers = Table::new(rows).widths(&widths);
+            let area = Rect::new(60, 0, 34, 50);
+            frame.render_widget(registers, area);
         })?;
         if event::poll(Duration::from_millis(250))? {
             if let Event::Key(key) = event::read()? {

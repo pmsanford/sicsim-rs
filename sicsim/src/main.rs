@@ -5,6 +5,7 @@ use std::{
     error::Error,
     fs,
     io::{self, Stdout},
+    path::PathBuf,
     rc::Rc,
     sync::{Arc, Mutex},
     time::Duration,
@@ -262,19 +263,48 @@ fn registers_view(
     frame.render_widget(registers, area);
 }
 
+fn debug_view(frame: &mut Frame<CrosstermBackend<Stdout>>, val: String) {
+    let paragraph = Paragraph::new(val);
+    frame.render_widget(paragraph, Rect::new(60, 30, 30, 1));
+}
+
+fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &str, load_at: u32) {
+    let mut path = PathBuf::from("../sickos/src/bin/");
+    path.push(name);
+    let program = fs::read_to_string(path.with_extension("ebj")).unwrap();
+    let program_sdb = fs::read_to_string(path.with_extension("sdb")).unwrap();
+    loader.load_string(&program, load_at);
+    debugger.load(load_at, program_sdb).unwrap();
+}
+
 fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
     let mut start_addr = 0;
     let bytes_displayed = 50 * 16;
     let mut vm = SicXeVm::empty();
     let mut loader = ProgramLoader::new();
-    let cont = fs::read_to_string("test.ebj")?;
-    let sdb = fs::read_to_string("test.sdb")?;
 
     let mut debugger = SdbDebugger::new();
-    debugger.load(0, sdb).unwrap();
-    let labels = debugger.get_labels();
+    load_program(&mut debugger, &mut loader, "bootloader", 0x0);
 
-    loader.load_string(&cont, 0);
+    load_program(&mut debugger, &mut loader, "work_areas", 0x100);
+
+    load_program(&mut debugger, &mut loader, "program_int", 0x30);
+
+    load_program(&mut debugger, &mut loader, "dispatcher", 0x200);
+
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7D0);
+
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7E0);
+
+    load_program(&mut debugger, &mut loader, "wake_counter", 0x7F0);
+
+    loader.copy_all_to(&mut vm);
+
+    let labels = debugger.get_labels();
+    // Set interrupt timer at 10 sec
+    vm.I = [0, 0, 10];
+    // Need to start in privileged mode
+    vm.SW[0] |= 0x80;
 
     loader.copy_all_to(&mut vm);
     vm.set_pc(0);
@@ -347,7 +377,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                     start_addr = vm.memory.len() / 2;
                 }
                 if KeyCode::Char('p') == key.code {
-                    start_addr = vm.PC.as_u32() as usize;
+                    let pc = vm.PC.as_u32() as usize;
+                    start_addr = pc - pc % 16;
                 }
             }
         }

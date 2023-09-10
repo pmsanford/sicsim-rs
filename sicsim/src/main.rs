@@ -12,7 +12,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -35,7 +35,8 @@ use ratatui::{
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = setup_terminal()?;
-    run(&mut terminal)?;
+    let mut app = App::new(&mut terminal);
+    app.run()?;
     restore_terminal(&mut terminal)?;
     Ok(())
 }
@@ -277,114 +278,142 @@ fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &s
     debugger.load(load_at, program_sdb).unwrap();
 }
 
-fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
-    let mut start_addr = 0;
-    let bytes_displayed = 50 * 16;
-    let mut vm = SicXeVm::empty();
-    let mut loader = ProgramLoader::new();
+struct App<'a> {
+    start_addr: usize,
+    bytes_displayed: usize,
+    vm: SicXeVm,
+    debugger: Arc<Mutex<SdbDebugger>>,
+    terminal: &'a mut Terminal<CrosstermBackend<Stdout>>,
+}
 
-    let mut debugger = SdbDebugger::new();
-    load_program(&mut debugger, &mut loader, "bootloader", 0x0);
+impl<'a> App<'a> {
+    fn new(terminal: &'a mut Terminal<CrosstermBackend<Stdout>>) -> Self {
+        let mut vm = SicXeVm::empty();
+        let mut loader = ProgramLoader::new();
 
-    load_program(&mut debugger, &mut loader, "work_areas", 0x100);
+        let mut debugger = SdbDebugger::new();
+        load_program(&mut debugger, &mut loader, "bootloader", 0x0);
 
-    load_program(&mut debugger, &mut loader, "program_int", 0x30);
+        load_program(&mut debugger, &mut loader, "work_areas", 0x100);
 
-    load_program(&mut debugger, &mut loader, "dispatcher", 0x200);
+        load_program(&mut debugger, &mut loader, "program_int", 0x30);
 
-    load_program(&mut debugger, &mut loader, "wake_counter", 0x7D0);
+        load_program(&mut debugger, &mut loader, "dispatcher", 0x200);
 
-    load_program(&mut debugger, &mut loader, "wake_counter", 0x7E0);
+        load_program(&mut debugger, &mut loader, "wake_counter", 0x7D0);
 
-    load_program(&mut debugger, &mut loader, "wake_counter", 0x7F0);
+        load_program(&mut debugger, &mut loader, "wake_counter", 0x7E0);
 
-    loader.copy_all_to(&mut vm);
+        load_program(&mut debugger, &mut loader, "wake_counter", 0x7F0);
 
-    let labels = debugger.get_labels();
-    // Set interrupt timer at 10 sec
-    vm.I = [0, 0, 10];
-    // Need to start in privileged mode
-    vm.SW[0] |= 0x80;
+        loader.copy_all_to(&mut vm);
 
-    loader.copy_all_to(&mut vm);
-    vm.set_pc(0);
+        // Set interrupt timer at 10 sec
+        vm.I = [0, 0, 10];
+        // Need to start in privileged mode
+        vm.SW[0] |= 0x80;
+        vm.set_pc(0);
 
-    let debugger = Arc::new(Mutex::new(debugger));
+        let debugger = Arc::new(Mutex::new(debugger));
 
-    vm.debugger = Some(Box::new(debugger.clone()));
+        vm.debugger = Some(Box::new(debugger.clone()));
 
-    loop {
-        terminal.draw(|frame| {
-            let pc = vm.PC.as_u32();
-
-            memory_view(frame, &vm, start_addr, bytes_displayed, &debugger);
-
-            symbols_view(frame, &vm, &debugger);
-
-            source_view(frame, &vm, &debugger);
-
-            registers_view(frame, &vm, &debugger);
-        })?;
-        if event::poll(Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                if KeyCode::Char('q') == key.code {
-                    break;
-                }
-                if KeyCode::Char('s') == key.code {
-                    vm.step();
-                }
-                if KeyCode::Char('f') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    start_addr = (start_addr + 16).clamp(0, vm.memory.len() - bytes_displayed);
-                }
-                if KeyCode::Char('f') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
-                    start_addr =
-                        (start_addr + bytes_displayed).clamp(0, vm.memory.len() - bytes_displayed);
-                }
-                if KeyCode::Char('b') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    if start_addr > 16 {
-                        start_addr = (start_addr - 16).clamp(0, vm.memory.len() - bytes_displayed);
-                    } else {
-                        start_addr = 0
-                    }
-                }
-                if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
-                    if start_addr > bytes_displayed {
-                        start_addr -= bytes_displayed;
-                    } else {
-                        start_addr = 0;
-                    }
-                }
-                if KeyCode::Char('F') == key.code {
-                    start_addr = (start_addr + bytes_displayed * 16)
-                        .clamp(0, vm.memory.len() - bytes_displayed);
-                }
-                if KeyCode::Char('B') == key.code {
-                    if start_addr > bytes_displayed * 16 {
-                        start_addr -= bytes_displayed * 16;
-                    } else {
-                        start_addr = 0;
-                    }
-                }
-                if KeyCode::Char('g') == key.code {
-                    start_addr = 0;
-                }
-                if KeyCode::Char('G') == key.code {
-                    start_addr = vm.memory.len() - bytes_displayed;
-                }
-                if KeyCode::Char('m') == key.code {
-                    start_addr = vm.memory.len() / 2;
-                }
-                if KeyCode::Char('p') == key.code {
-                    let pc = vm.PC.as_u32() as usize;
-                    start_addr = pc - pc % 16;
-                }
-            }
+        Self {
+            start_addr: 0,
+            bytes_displayed: 50 * 16,
+            vm,
+            debugger,
+            terminal,
         }
     }
 
-    Ok(())
+    fn run(&mut self) -> Result<(), Box<dyn Error>> {
+        loop {
+            self.terminal.draw(|frame| {
+                let pc = self.vm.PC.as_u32();
+
+                memory_view(
+                    frame,
+                    &self.vm,
+                    self.start_addr,
+                    self.bytes_displayed,
+                    &self.debugger,
+                );
+
+                symbols_view(frame, &self.vm, &self.debugger);
+
+                source_view(frame, &self.vm, &self.debugger);
+
+                registers_view(frame, &self.vm, &self.debugger);
+            })?;
+            if event::poll(Duration::from_millis(250))? {
+                if let Event::Key(key) = event::read()? {
+                    if self.handle_key_event(key) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> bool {
+        if KeyCode::Char('q') == key.code {
+            return true;
+        }
+        if KeyCode::Char('s') == key.code {
+            self.vm.step();
+        }
+        if KeyCode::Char('f') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.start_addr =
+                (self.start_addr + 16).clamp(0, self.vm.memory.len() - self.bytes_displayed);
+        }
+        if KeyCode::Char('f') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.start_addr = (self.start_addr + self.bytes_displayed)
+                .clamp(0, self.vm.memory.len() - self.bytes_displayed);
+        }
+        if KeyCode::Char('b') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.start_addr > 16 {
+                self.start_addr =
+                    (self.start_addr - 16).clamp(0, self.vm.memory.len() - self.bytes_displayed);
+            } else {
+                self.start_addr = 0
+            }
+        }
+        if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if self.start_addr > self.bytes_displayed {
+                self.start_addr -= self.bytes_displayed;
+            } else {
+                self.start_addr = 0;
+            }
+        }
+        if KeyCode::Char('F') == key.code {
+            self.start_addr = (self.start_addr + self.bytes_displayed * 16)
+                .clamp(0, self.vm.memory.len() - self.bytes_displayed);
+        }
+        if KeyCode::Char('B') == key.code {
+            if self.start_addr > self.bytes_displayed * 16 {
+                self.start_addr -= self.bytes_displayed * 16;
+            } else {
+                self.start_addr = 0;
+            }
+        }
+        if KeyCode::Char('g') == key.code {
+            self.start_addr = 0;
+        }
+        if KeyCode::Char('G') == key.code {
+            self.start_addr = self.vm.memory.len() - self.bytes_displayed;
+        }
+        if KeyCode::Char('m') == key.code {
+            self.start_addr = self.vm.memory.len() / 2;
+        }
+        if KeyCode::Char('p') == key.code {
+            let pc = self.vm.PC.as_u32() as usize;
+            self.start_addr = pc - pc % 16;
+        }
+        false
+    }
 }
 
 fn highlight_if(val: String, highlight: bool) -> Cell<'static> {

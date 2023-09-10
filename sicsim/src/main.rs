@@ -72,6 +72,43 @@ fn memory_view(
     bytes_displayed: usize,
     debugger: &Mutex<SdbDebugger>,
 ) {
+    let mut highlights = HashMap::new();
+    let (inst_size, target) = {
+        let debugger = debugger.lock().expect("mutex read");
+        let op = debugger.get_next_op(vm);
+        let inst_size = op.map_or(1, |op| op.len());
+
+        let target = op
+            .map(|op| debugger.find_target_address(vm, &op))
+            .and_then(|(target, _)| target);
+
+        (inst_size, target)
+    };
+
+    if let Some(coords) = address_to_coords(start_addr as u32, vm.PC.as_u32()) {
+        highlights.insert(coords, Color::Yellow);
+        for i in 0..inst_size - 1 {
+            highlights.insert(
+                address_to_coords(start_addr as u32, vm.PC.as_u32() + i + 1).unwrap(),
+                Color::Yellow,
+            );
+        }
+    }
+
+    if let Some(target) = target {
+        if let Some(coords) = address_to_coords(start_addr as u32, target) {
+            highlights.insert(coords, Color::Blue);
+            highlights.insert(
+                address_to_coords(start_addr as u32, target + 1).unwrap(),
+                Color::Blue,
+            );
+            highlights.insert(
+                address_to_coords(start_addr as u32, target + 2).unwrap(),
+                Color::Blue,
+            );
+        }
+    }
+
     let mut rows = vm.memory[start_addr..start_addr + bytes_displayed]
         .iter()
         .map(|b| format!("{:0>2X}", b))
@@ -86,39 +123,10 @@ fn memory_view(
                 .enumerate()
                 .map(|(cell_idx, val)| {
                     let mut cell = Cell::from(val);
-                    let (inst_size, target) = {
-                        let debugger = debugger.lock().expect("mutex read");
-                        let op = debugger.get_next_op(vm);
-                        let inst_size = op.map_or(1, |op| op.len());
-
-                        let target = op
-                            .map(|op| debugger.find_target_address(vm, &op))
-                            .and_then(|(target, _)| target);
-
-                        (inst_size, target)
-                    };
                     let coords = address_to_coords(start_addr as u32, vm.PC.as_u32());
-                    if let Some((pc_row, pc_idx)) = coords {
-                        if idx == pc_row
-                            && (pc_idx..pc_idx + inst_size as usize).contains(&cell_idx)
-                        {
-                            cell = cell.style(
-                                Style::default()
-                                    .add_modifier(Modifier::BOLD)
-                                    .fg(Color::Yellow),
-                            );
-                        }
-                    }
-                    if target
-                        .and_then(|target| address_to_coords(start_addr as u32, target))
-                        .map(|(row, col)| idx == row && (col..col + 3).contains(&cell_idx))
-                        .unwrap_or(false)
+                    if let Some(color) = coords.and_then(|coords| highlights.get(&(idx, cell_idx)))
                     {
-                        cell = cell.style(
-                            Style::default()
-                                .add_modifier(Modifier::BOLD)
-                                .fg(Color::Blue),
-                        )
+                        cell = cell.style(Style::default().fg(*color));
                     }
                     cell
                 })

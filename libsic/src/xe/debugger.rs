@@ -401,7 +401,18 @@ impl SdbDebugger {
         Ok(())
     }
 
-    fn find_target_address(
+    pub fn get_next_op(&self, vm: &super::vm::SicXeVm) -> Option<Op> {
+        let pc = vm.PC.as_u32() as usize;
+        let bytes = [
+            vm.memory[pc],
+            vm.memory[pc + 1],
+            vm.memory[pc + 2],
+            vm.memory[pc + 3],
+        ];
+        Op::from_bytes(bytes)
+    }
+
+    pub fn find_target_address(
         &self,
         vm: &super::vm::SicXeVm,
         op: &super::op::Op,

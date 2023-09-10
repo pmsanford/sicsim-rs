@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     error::Error,
     fs,
     io::{self, Stdout},
@@ -291,6 +291,7 @@ fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &s
 enum InputMode {
     Step,
     Jump,
+    Breakpoint,
 }
 
 struct App<'a> {
@@ -302,6 +303,8 @@ struct App<'a> {
     mode: InputMode,
     current_input: String,
     input_title: String,
+    cycle_limit: u64,
+    breakpoints: HashSet<u32>,
 }
 
 impl<'a> App<'a> {
@@ -345,6 +348,8 @@ impl<'a> App<'a> {
             mode: InputMode::Step,
             current_input: String::new(),
             input_title: String::new(),
+            cycle_limit: 10000,
+            breakpoints: HashSet::new(),
         }
     }
 
@@ -367,7 +372,7 @@ impl<'a> App<'a> {
 
                 registers_view(frame, &self.vm, &self.debugger);
 
-                if self.mode == InputMode::Jump {
+                if self.mode == InputMode::Jump || self.mode == InputMode::Breakpoint {
                     input_view(frame, &self.current_input, &self.input_title);
                 }
             })?;
@@ -379,7 +384,7 @@ impl<'a> App<'a> {
                                 break;
                             }
                         }
-                        InputMode::Jump => {
+                        InputMode::Jump | InputMode::Breakpoint => {
                             self.handle_input(key);
                         }
                     }
@@ -404,6 +409,13 @@ impl<'a> App<'a> {
                     InputMode::Jump => {
                         if let Ok(new_addr) = usize::from_str_radix(&self.current_input, 16) {
                             self.start_addr = new_addr - new_addr % 16;
+                        } else {
+                            return;
+                        }
+                    }
+                    InputMode::Breakpoint => {
+                        if let Ok(new_addr) = u32::from_str_radix(&self.current_input, 16) {
+                            self.breakpoints.insert(new_addr);
                         } else {
                             return;
                         }
@@ -444,6 +456,14 @@ impl<'a> App<'a> {
             self.input_title = "Jump to".into();
             self.mode = InputMode::Jump;
         }
+        if KeyCode::Char('S') == key.code {
+            self.current_input = String::new();
+            self.input_title = "Set breakpoint".into();
+            self.mode = InputMode::Breakpoint;
+        }
+        if KeyCode::Char('c') == key.code {
+            self.breakpoints.clear();
+        }
         if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.start_addr > self.bytes_displayed {
                 self.start_addr -= self.bytes_displayed;
@@ -474,6 +494,14 @@ impl<'a> App<'a> {
         if KeyCode::Char('p') == key.code {
             let pc = self.vm.PC.as_u32() as usize;
             self.start_addr = pc - pc % 16;
+        }
+        if KeyCode::Char('r') == key.code {
+            for _ in 0..self.cycle_limit {
+                if self.breakpoints.contains(&self.vm.PC.as_u32()) {
+                    break;
+                }
+                self.vm.step();
+            }
         }
         false
     }

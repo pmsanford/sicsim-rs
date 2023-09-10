@@ -11,7 +11,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -62,6 +62,8 @@ fn address_to_coords(address: u32) -> (usize, usize) {
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
+    let mut start_addr = 0;
+    let bytes_displayed = 50 * 16;
     let mut vm = SicXeVm::empty();
     let mut loader = ProgramLoader::new();
     let cont = fs::read_to_string("test.ebj")?;
@@ -83,7 +85,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
         terminal.draw(|frame| {
             let pc = vm.PC.as_u32();
             let (pc_row, pc_idx) = address_to_coords(pc);
-            let mut rows = vm.memory[..50 * 16]
+            let mut rows = vm.memory[start_addr..start_addr + bytes_displayed]
                 .iter()
                 .map(|b| format!("{:0>2X}", b))
                 .collect::<Vec<_>>()
@@ -91,7 +93,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                 .enumerate()
                 .map(|(idx, c)| {
                     let mut items = Vec::from(c);
-                    items.insert(0, format!("0x{:0>4X}", idx * 16));
+                    items.insert(0, format!("0x{:0>4X}", idx * 16 + start_addr));
                     let items = items
                         .into_iter()
                         .enumerate()
@@ -250,6 +252,49 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                 if KeyCode::Char('s') == key.code {
                     vm.step();
                 }
+                if KeyCode::Char('f') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    start_addr = (start_addr + 16).clamp(0, vm.memory.len() - bytes_displayed);
+                }
+                if KeyCode::Char('f') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    start_addr =
+                        (start_addr + bytes_displayed).clamp(0, vm.memory.len() - bytes_displayed);
+                }
+                if KeyCode::Char('b') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    if start_addr > 16 {
+                        start_addr = (start_addr - 16).clamp(0, vm.memory.len() - bytes_displayed);
+                    } else {
+                        start_addr = 0
+                    }
+                }
+                if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    if start_addr > bytes_displayed {
+                        start_addr -= bytes_displayed;
+                    } else {
+                        start_addr = 0;
+                    }
+                }
+                if KeyCode::Char('F') == key.code {
+                    start_addr = (start_addr + bytes_displayed * 16)
+                        .clamp(0, vm.memory.len() - bytes_displayed);
+                }
+                if KeyCode::Char('B') == key.code {
+                    if start_addr > bytes_displayed * 16 {
+                        start_addr -= bytes_displayed * 16;
+                    } else {
+                        start_addr = 0;
+                    }
+                }
+                if KeyCode::Char('g') == key.code {
+                    start_addr = 0;
+                }
+                if KeyCode::Char('G') == key.code {
+                    start_addr = vm.memory.len() - bytes_displayed;
+                }
+                if KeyCode::Char('m') == key.code {
+                    start_addr = vm.memory.len() / 2;
+                }
             }
         }
     }
@@ -265,74 +310,4 @@ fn highlight_if(val: String, highlight: bool) -> Cell<'static> {
     }
 
     cell
-}
-
-fn run_old(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
-    let data = [
-        0x00u8, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
-        0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D,
-        0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C,
-        0x2D, 0x2E, 0x2F,
-    ];
-
-    let mut vm = SicXeVm::empty();
-    let mut loader = ProgramLoader::new();
-    let cont = fs::read_to_string("test.ebj")?;
-
-    loader.load_string(&cont, 0);
-
-    loader.copy_all_to(&mut vm);
-
-    loop {
-        terminal.draw(|frame| {
-            let mut rows = data
-                .iter()
-                .map(|b| format!("{:0>2X}", b))
-                .collect::<Vec<_>>()
-                .chunks(16)
-                .enumerate()
-                .map(|(idx, c)| {
-                    let mut items = Vec::from(c);
-                    items.insert(0, format!("0x{:0>4X}", idx * 16));
-                    let items = items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(cell_idx, val)| {
-                            let cell = Cell::from(val);
-                            if idx == 1 && (1..4).contains(&cell_idx) {
-                                cell.style(
-                                    Style::default()
-                                        .add_modifier(Modifier::BOLD)
-                                        .fg(Color::Yellow),
-                                )
-                            } else {
-                                cell
-                            }
-                        })
-                        .collect::<Vec<_>>();
-                    Row::new(items)
-                })
-                .collect::<Vec<_>>();
-            let mut header_values = (0..16).map(|c| format!("{: >2X}", c)).collect::<Vec<_>>();
-            header_values.insert(0, "".to_owned());
-            let first_row = Row::new(header_values).bottom_margin(1);
-            rows.insert(0, first_row);
-            let mut widths = vec![Constraint::Length(2); 16];
-            widths.insert(0, Constraint::Length(7));
-            let greeting = Table::new(rows)
-                .style(Style::default().fg(Color::White))
-                .widths(&widths)
-                .column_spacing(1);
-            frame.render_widget(greeting, frame.size());
-        })?;
-        if event::poll(Duration::from_millis(250))? {
-            if let Event::Key(key) = event::read()? {
-                if KeyCode::Char('q') == key.code {
-                    break;
-                }
-            }
-        }
-    }
-
-    Ok(())
 }

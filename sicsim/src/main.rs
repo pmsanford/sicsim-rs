@@ -54,11 +54,15 @@ fn restore_terminal(
     Ok(terminal.show_cursor()?)
 }
 
-fn address_to_coords(address: u32) -> (usize, usize) {
+fn address_to_coords(start_addr: u32, address: u32) -> Option<(usize, usize)> {
+    if start_addr > address {
+        return None;
+    }
+    let address = address - start_addr as u32;
     let row = address / 16;
     let idx = address % 16 + 1;
 
-    (row as usize, idx as usize)
+    Some((row as usize, idx as usize))
 }
 
 fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
@@ -70,12 +74,13 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
     let sdb = fs::read_to_string("test.sdb")?;
 
     let mut debugger = SdbDebugger::new();
-    debugger.load(0, sdb).unwrap();
+    debugger.load(2000, sdb).unwrap();
     let labels = debugger.get_labels();
 
-    loader.load_string(&cont, 0);
+    loader.load_string(&cont, 2000);
 
     loader.copy_all_to(&mut vm);
+    vm.set_pc(2000);
 
     let debugger = Arc::new(Mutex::new(debugger));
 
@@ -84,7 +89,6 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
     loop {
         terminal.draw(|frame| {
             let pc = vm.PC.as_u32();
-            let (pc_row, pc_idx) = address_to_coords(pc);
             let mut rows = vm.memory[start_addr..start_addr + bytes_displayed]
                 .iter()
                 .map(|b| format!("{:0>2X}", b))
@@ -98,7 +102,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                         .into_iter()
                         .enumerate()
                         .map(|(cell_idx, val)| {
-                            let cell = Cell::from(val);
+                            let mut cell = Cell::from(val);
                             let (inst_size, target) = {
                                 let debugger = debugger.lock().expect("mutex read");
                                 let inst_size = debugger.get_last_op().map_or(1, |op| op.len());
@@ -110,27 +114,30 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
 
                                 (inst_size, target)
                             };
-                            if idx == pc_row
-                                && (pc_idx..pc_idx + inst_size as usize).contains(&cell_idx)
-                            {
-                                cell.style(
-                                    Style::default()
-                                        .add_modifier(Modifier::BOLD)
-                                        .fg(Color::Yellow),
-                                )
-                            } else if target
-                                .map(address_to_coords)
+                            let coords = address_to_coords(start_addr as u32, pc);
+                            if let Some((pc_row, pc_idx)) = coords {
+                                if idx == pc_row
+                                    && (pc_idx..pc_idx + inst_size as usize).contains(&cell_idx)
+                                {
+                                    cell = cell.style(
+                                        Style::default()
+                                            .add_modifier(Modifier::BOLD)
+                                            .fg(Color::Yellow),
+                                    );
+                                }
+                            }
+                            if target
+                                .and_then(|target| address_to_coords(start_addr as u32, target))
                                 .map(|(row, col)| idx == row && (col..col + 3).contains(&cell_idx))
                                 .unwrap_or(false)
                             {
-                                cell.style(
+                                cell = cell.style(
                                     Style::default()
                                         .add_modifier(Modifier::BOLD)
                                         .fg(Color::Blue),
                                 )
-                            } else {
-                                cell
                             }
+                            cell
                         })
                         .collect::<Vec<_>>();
                     Row::new(items)
@@ -294,6 +301,9 @@ fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn 
                 }
                 if KeyCode::Char('m') == key.code {
                     start_addr = vm.memory.len() / 2;
+                }
+                if KeyCode::Char('p') == key.code {
+                    start_addr = vm.PC.as_u32() as usize;
                 }
             }
         }

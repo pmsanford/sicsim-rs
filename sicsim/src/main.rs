@@ -29,7 +29,7 @@ use ratatui::{
     prelude::{Constraint, CrosstermBackend, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Text},
-    widgets::{Block, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table},
     Frame, Terminal,
 };
 
@@ -206,6 +206,15 @@ fn symbols_view(
     frame.render_widget(symbols, area);
 }
 
+fn input_view(frame: &mut Frame<CrosstermBackend<Stdout>>, current_input: &str, title: &str) {
+    let rect = Rect::new(10, 20, 74, 3);
+    let paragraph = Paragraph::new(current_input)
+        .block(Block::new().borders(Borders::ALL).title(title))
+        .style(Style::default().bg(Color::Black));
+    frame.render_widget(Clear, rect);
+    frame.render_widget(paragraph, rect);
+}
+
 fn registers_view(
     frame: &mut Frame<CrosstermBackend<Stdout>>,
     vm: &SicXeVm,
@@ -278,12 +287,21 @@ fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &s
     debugger.load(load_at, program_sdb).unwrap();
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputMode {
+    Step,
+    Jump,
+}
+
 struct App<'a> {
     start_addr: usize,
     bytes_displayed: usize,
     vm: SicXeVm,
     debugger: Arc<Mutex<SdbDebugger>>,
     terminal: &'a mut Terminal<CrosstermBackend<Stdout>>,
+    mode: InputMode,
+    current_input: String,
+    input_title: String,
 }
 
 impl<'a> App<'a> {
@@ -324,6 +342,9 @@ impl<'a> App<'a> {
             vm,
             debugger,
             terminal,
+            mode: InputMode::Step,
+            current_input: String::new(),
+            input_title: String::new(),
         }
     }
 
@@ -345,11 +366,22 @@ impl<'a> App<'a> {
                 source_view(frame, &self.vm, &self.debugger);
 
                 registers_view(frame, &self.vm, &self.debugger);
+
+                if self.mode == InputMode::Jump {
+                    input_view(frame, &self.current_input, &self.input_title);
+                }
             })?;
             if event::poll(Duration::from_millis(250))? {
                 if let Event::Key(key) = event::read()? {
-                    if self.handle_key_event(key) {
-                        break;
+                    match self.mode {
+                        InputMode::Step => {
+                            if self.handle_step_mode(key) {
+                                break;
+                            }
+                        }
+                        InputMode::Jump => {
+                            self.handle_input(key);
+                        }
                     }
                 }
             }
@@ -358,7 +390,33 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    fn handle_key_event(&mut self, key: KeyEvent) -> bool {
+    fn handle_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char(c) => {
+                self.current_input += &c.to_string();
+            }
+            KeyCode::Esc => {
+                self.current_input = String::new();
+                self.mode = InputMode::Step;
+            }
+            KeyCode::Enter => {
+                match self.mode {
+                    InputMode::Jump => {
+                        if let Ok(new_addr) = usize::from_str_radix(&self.current_input, 16) {
+                            self.start_addr = new_addr - new_addr % 16;
+                        } else {
+                            return;
+                        }
+                    }
+                    _ => {}
+                }
+                self.mode = InputMode::Step;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_step_mode(&mut self, key: KeyEvent) -> bool {
         if KeyCode::Char('q') == key.code {
             return true;
         }
@@ -380,6 +438,11 @@ impl<'a> App<'a> {
             } else {
                 self.start_addr = 0
             }
+        }
+        if KeyCode::Char('j') == key.code {
+            self.current_input = String::new();
+            self.input_title = "Jump to".into();
+            self.mode = InputMode::Jump;
         }
         if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.start_addr > self.bytes_displayed {

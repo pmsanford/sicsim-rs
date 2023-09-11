@@ -353,6 +353,15 @@ impl<'a> App<'a> {
         }
     }
 
+    fn follow_pc(&mut self) {
+        let pc = self.vm.PC.as_u32() as usize;
+        let upper = self.start_addr + self.bytes_displayed - 4;
+
+        if pc > upper || pc < self.start_addr {
+            self.start_addr = pc - pc % 16;
+        }
+    }
+
     fn run(&mut self) -> Result<(), Box<dyn Error>> {
         loop {
             self.terminal.draw(|frame| {
@@ -434,6 +443,7 @@ impl<'a> App<'a> {
         }
         if KeyCode::Char('s') == key.code {
             self.vm.step();
+            self.follow_pc();
         }
         if KeyCode::Char('f') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL) {
             self.start_addr =
@@ -502,6 +512,7 @@ impl<'a> App<'a> {
                 }
                 self.vm.step();
             }
+            self.follow_pc();
         }
         false
     }

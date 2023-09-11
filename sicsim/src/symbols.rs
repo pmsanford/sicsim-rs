@@ -39,6 +39,7 @@ enum PanelMode {
     View,
     ProgramSelect,
     LabelSelect,
+    WatchEdit,
 }
 
 pub struct SymbolsPanel {
@@ -73,11 +74,18 @@ impl SymbolsPanel {
             PanelMode::View => 0,
             PanelMode::ProgramSelect => self.programs.len(),
             PanelMode::LabelSelect => self.labels[&self.program].len(),
+            PanelMode::WatchEdit => self.watches.len(),
         }
     }
 
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
+    }
+
+    pub fn edit(&mut self) {
+        let state = ListState::default().with_selected(Some(0));
+        self.list_state = RefCell::new(state);
+        self.mode = PanelMode::WatchEdit;
     }
 
     pub fn start(&mut self) {
@@ -135,6 +143,16 @@ impl SymbolsPanel {
                 self.list_state = RefCell::new(ListState::default().with_selected(Some(0)));
                 self.mode = PanelMode::View;
             }
+            PanelMode::WatchEdit => {
+                let Some(selected) = self.list_state.borrow().selected() else {
+                    return;
+                };
+                let label = self.watches.remove(selected);
+                self.watch_addresses.remove(&label);
+
+                self.list_state = RefCell::new(ListState::default().with_selected(Some(0)));
+                self.mode = PanelMode::View;
+            }
         }
     }
 
@@ -148,7 +166,18 @@ impl SymbolsPanel {
             PanelMode::View => self.render_watches(frame, vm),
             PanelMode::ProgramSelect => self.render_programs(frame),
             PanelMode::LabelSelect => self.render_labels(frame),
+            PanelMode::WatchEdit => self.render_watch_edit(frame),
         }
+    }
+
+    fn render_watch_edit(&self, frame: &mut Frame<CrosstermBackend<Stdout>>) {
+        let items = self
+            .watches
+            .iter()
+            .map(|watch| ListItem::new(watch.clone()))
+            .collect::<Vec<_>>();
+        let list = self.configure_list(List::new(items));
+        frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut());
     }
 
     fn render_watches(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, vm: &SicXeVm) {

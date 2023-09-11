@@ -304,6 +304,9 @@ impl<'a> App<'a> {
             KeyCode::Char('n') => {
                 self.symbol_panel.start();
             }
+            KeyCode::Char('e') => {
+                self.symbol_panel.edit();
+            }
             KeyCode::Up => {
                 self.symbol_panel.previous();
             }

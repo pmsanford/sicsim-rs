@@ -39,7 +39,7 @@ use ratatui::{
 
 use memory::memory_view;
 use registers::registers_view;
-use symbols::symbols_view;
+use symbols::{symbols_view, SymbolsPanel};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = setup_terminal()?;
@@ -119,9 +119,7 @@ struct App<'a> {
     input_title: String,
     cycle_limit: u64,
     breakpoints: HashSet<u32>,
-    programs: Vec<String>,
-    labels: BTreeMap<String, BTreeMap<String, u32>>,
-    symbol_index: usize,
+    symbol_panel: SymbolsPanel,
 }
 
 impl<'a> App<'a> {
@@ -189,9 +187,7 @@ impl<'a> App<'a> {
             input_title: String::new(),
             cycle_limit: 10000,
             breakpoints: HashSet::new(),
-            symbol_index: 0,
-            programs,
-            labels,
+            symbol_panel: SymbolsPanel::new(programs, labels),
         }
     }
 
@@ -217,18 +213,11 @@ impl<'a> App<'a> {
                     &self.debugger,
                 );
 
-                symbols_view(
-                    frame,
-                    &self.vm,
-                    &self.debugger,
-                    &self.programs,
-                    &self.labels,
-                    self.symbol_index,
-                );
-
                 source_view(frame, &self.vm, &self.debugger);
 
                 registers_view(frame, &self.vm, &self.debugger);
+
+                self.symbol_panel.render(frame, &self.vm);
 
                 if self.mode == InputMode::Jump
                     || self.mode == InputMode::Breakpoint
@@ -307,18 +296,22 @@ impl<'a> App<'a> {
 
     fn handle_symbol_tab(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Tab => {
+            KeyCode::Tab | KeyCode::Esc => {
+                self.symbol_panel.cancel();
+                self.symbol_panel.set_active(false);
                 self.mode = InputMode::Step;
             }
-            KeyCode::Left => {
-                if self.symbol_index > 0 {
-                    self.symbol_index -= 1;
-                }
+            KeyCode::Char('n') => {
+                self.symbol_panel.start();
             }
-            KeyCode::Right => {
-                if self.symbol_index < self.programs.len() - 1 {
-                    self.symbol_index += 1;
-                }
+            KeyCode::Up => {
+                self.symbol_panel.previous();
+            }
+            KeyCode::Down => {
+                self.symbol_panel.next();
+            }
+            KeyCode::Enter => {
+                self.symbol_panel.select();
             }
             _ => {}
         }
@@ -333,6 +326,7 @@ impl<'a> App<'a> {
             self.follow_pc();
         }
         if KeyCode::Tab == key.code {
+            self.symbol_panel.set_active(true);
             self.mode = InputMode::Symbols
         }
         if KeyCode::Char('f') == key.code && !key.modifiers.contains(KeyModifiers::CONTROL) {

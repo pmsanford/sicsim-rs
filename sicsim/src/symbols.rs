@@ -28,10 +28,180 @@ use libsic::{
 use ratatui::{
     prelude::{Constraint, CrosstermBackend, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Text},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs},
+    text::{Line, Span, Text},
+    widgets::{
+        Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, Tabs,
+    },
     Frame, Terminal,
 };
+
+enum PanelMode {
+    View,
+    ProgramSelect,
+    LabelSelect,
+}
+
+pub struct SymbolsPanel {
+    programs: Vec<String>,
+    labels: BTreeMap<String, BTreeMap<String, u32>>,
+    watches: Vec<String>,
+    watch_addresses: HashMap<String, u32>,
+    mode: PanelMode,
+    program: String,
+    list_state: RefCell<ListState>,
+    area: Rect,
+    active: bool,
+}
+
+impl SymbolsPanel {
+    pub fn new(programs: Vec<String>, labels: BTreeMap<String, BTreeMap<String, u32>>) -> Self {
+        Self {
+            programs,
+            labels,
+            watches: Vec::new(),
+            watch_addresses: HashMap::new(),
+            mode: PanelMode::View,
+            program: String::default(),
+            list_state: RefCell::new(ListState::default()),
+            area: Rect::new(60, 16, 34, 35),
+            active: false,
+        }
+    }
+
+    fn max(&self) -> usize {
+        match self.mode {
+            PanelMode::View => 0,
+            PanelMode::ProgramSelect => self.programs.len(),
+            PanelMode::LabelSelect => self.labels[&self.program].len(),
+        }
+    }
+
+    pub fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+
+    pub fn start(&mut self) {
+        let state = ListState::default().with_selected(Some(0));
+        self.list_state = RefCell::new(state);
+        self.mode = PanelMode::ProgramSelect;
+    }
+
+    pub fn next(&mut self) {
+        let selected = self
+            .list_state
+            .borrow()
+            .selected()
+            .map(|l| l + 1)
+            .unwrap_or(0);
+        if selected <= self.max() {
+            self.list_state.borrow_mut().select(Some(selected));
+        }
+    }
+
+    pub fn previous(&mut self) {
+        let selected = self
+            .list_state
+            .borrow()
+            .selected()
+            .map(|l| if l > 0 { l - 1 } else { 0 })
+            .unwrap_or(0);
+        self.list_state.borrow_mut().select(Some(selected));
+    }
+
+    pub fn select(&mut self) {
+        let Some(selected) = self.list_state.borrow().selected() else {
+            return;
+        };
+        match self.mode {
+            PanelMode::View => {}
+            PanelMode::ProgramSelect => {
+                self.program = self.programs[selected].clone();
+                self.list_state = RefCell::new(ListState::default().with_selected(Some(0)));
+                self.mode = PanelMode::LabelSelect;
+            }
+            PanelMode::LabelSelect => {
+                let Some(selected) = self.list_state.borrow().selected() else {
+                    return;
+                };
+                let label_name = self.labels[&self.program]
+                    .keys()
+                    .nth(selected)
+                    .expect("label index mismatch")
+                    .clone();
+                let label_address = self.labels[&self.program][&label_name];
+                self.watches.push(label_name.clone());
+                self.watch_addresses.insert(label_name, label_address);
+
+                self.list_state = RefCell::new(ListState::default().with_selected(Some(0)));
+                self.mode = PanelMode::View;
+            }
+        }
+    }
+
+    pub fn cancel(&mut self) {
+        self.list_state = RefCell::new(ListState::default().with_selected(Some(0)));
+        self.mode = PanelMode::View;
+    }
+
+    pub fn render(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, vm: &SicXeVm) {
+        match self.mode {
+            PanelMode::View => self.render_watches(frame, vm),
+            PanelMode::ProgramSelect => self.render_programs(frame),
+            PanelMode::LabelSelect => self.render_labels(frame),
+        }
+    }
+
+    fn render_watches(&self, frame: &mut Frame<CrosstermBackend<Stdout>>, vm: &SicXeVm) {
+        let rows = self
+            .watches
+            .iter()
+            .map(|watch| {
+                let address = self.watch_addresses[watch];
+                Row::new(vec![
+                    watch.clone(),
+                    format!("{:0>6X}", vm.word_at(address).unwrap().as_u32()),
+                ])
+            })
+            .collect::<Vec<_>>();
+        let widths = vec![Constraint::Length(13); 2];
+        let symbols = Table::new(rows).widths(&widths).block(self.block());
+        frame.render_widget(symbols, self.area);
+    }
+
+    fn render_programs(&self, frame: &mut Frame<CrosstermBackend<Stdout>>) {
+        let items = self
+            .programs
+            .iter()
+            .map(|program| ListItem::new(program.clone()))
+            .collect::<Vec<_>>();
+        let list = self.configure_list(List::new(items));
+        frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut())
+    }
+
+    fn render_labels(&self, frame: &mut Frame<CrosstermBackend<Stdout>>) {
+        let items = self.labels[&self.program]
+            .keys()
+            .map(|label| ListItem::new(label.clone()))
+            .collect::<Vec<_>>();
+        let list = self.configure_list(List::new(items));
+        frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut())
+    }
+
+    fn block(&self) -> Block {
+        let color = if self.active {
+            Color::Green
+        } else {
+            Color::default()
+        };
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(color))
+    }
+
+    fn configure_list<'a>(&'a self, list: List<'a>) -> List<'a> {
+        list.highlight_symbol("> ").block(self.block())
+    }
+}
 
 pub fn symbols_view(
     frame: &mut Frame<CrosstermBackend<Stdout>>,

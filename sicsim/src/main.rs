@@ -382,7 +382,10 @@ impl<'a> App<'a> {
 
                 registers_view(frame, &self.vm, &self.debugger);
 
-                if self.mode == InputMode::Jump || self.mode == InputMode::Breakpoint {
+                if self.mode == InputMode::Jump
+                    || self.mode == InputMode::Breakpoint
+                    || self.mode == InputMode::CycleLimit
+                {
                     input_view(frame, &self.current_input, &self.input_title);
                 }
             })?;
@@ -409,6 +412,11 @@ impl<'a> App<'a> {
         match key.code {
             KeyCode::Char(c) => {
                 self.current_input += &c.to_string();
+            }
+            KeyCode::Backspace => {
+                if !self.current_input.is_empty() {
+                    self.current_input = self.current_input[..self.current_input.len() - 1].into();
+                }
             }
             KeyCode::Esc => {
                 self.current_input = String::new();
@@ -483,7 +491,7 @@ impl<'a> App<'a> {
             self.breakpoints.clear();
         }
         if KeyCode::Char('c') == key.code {
-            self.current_input = String::new();
+            self.current_input = format!("{}", self.cycle_limit);
             self.input_title = "Set cycle limit".into();
             self.mode = InputMode::CycleLimit;
         }

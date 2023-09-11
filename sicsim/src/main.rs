@@ -106,6 +106,8 @@ enum InputMode {
     Breakpoint,
     CycleLimit,
     Symbols,
+    WatchName,
+    WatchAddr,
 }
 
 struct App<'a> {
@@ -120,6 +122,7 @@ struct App<'a> {
     cycle_limit: u64,
     breakpoints: HashSet<u32>,
     symbol_panel: SymbolsPanel,
+    watch_name: String,
 }
 
 impl<'a> App<'a> {
@@ -188,6 +191,7 @@ impl<'a> App<'a> {
             cycle_limit: 10000,
             breakpoints: HashSet::new(),
             symbol_panel: SymbolsPanel::new(programs, labels),
+            watch_name: String::new(),
         }
     }
 
@@ -222,6 +226,8 @@ impl<'a> App<'a> {
                 if self.mode == InputMode::Jump
                     || self.mode == InputMode::Breakpoint
                     || self.mode == InputMode::CycleLimit
+                    || self.mode == InputMode::WatchName
+                    || self.mode == InputMode::WatchAddr
                 {
                     input_view(frame, &self.current_input, &self.input_title);
                 }
@@ -237,7 +243,11 @@ impl<'a> App<'a> {
                         InputMode::Symbols => {
                             self.handle_symbol_tab(key);
                         }
-                        InputMode::Jump | InputMode::Breakpoint | InputMode::CycleLimit => {
+                        InputMode::Jump
+                        | InputMode::Breakpoint
+                        | InputMode::CycleLimit
+                        | InputMode::WatchName
+                        | InputMode::WatchAddr => {
                             self.handle_input(key);
                         }
                     }
@@ -287,6 +297,22 @@ impl<'a> App<'a> {
                     }
                     InputMode::Symbols => {}
                     InputMode::Step => {}
+                    InputMode::WatchName => {
+                        self.watch_name = self.current_input.clone();
+                        self.input_title = "Watch address".into();
+                        self.current_input = String::default();
+                        self.mode = InputMode::WatchAddr;
+                        return;
+                    }
+                    InputMode::WatchAddr => {
+                        if let Ok(new_addr) = u32::from_str_radix(&self.current_input, 16) {
+                            self.symbol_panel
+                                .add_watch(self.watch_name.clone(), new_addr);
+                            self.watch_name = String::default();
+                        } else {
+                            return;
+                        }
+                    }
                 }
                 self.mode = InputMode::Step;
             }
@@ -301,11 +327,19 @@ impl<'a> App<'a> {
                 self.symbol_panel.set_active(false);
                 self.mode = InputMode::Step;
             }
-            KeyCode::Char('n') => {
+            KeyCode::Char('f') => {
                 self.symbol_panel.start();
             }
             KeyCode::Char('e') => {
                 self.symbol_panel.edit();
+            }
+            KeyCode::Char('n') => {
+                self.symbol_panel.cancel();
+                self.symbol_panel.set_active(false);
+                self.input_title = "Watch name".into();
+                self.current_input = String::default();
+                self.watch_name = String::default();
+                self.mode = InputMode::WatchName;
             }
             KeyCode::Up => {
                 self.symbol_panel.previous();

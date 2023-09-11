@@ -78,6 +78,11 @@ impl SymbolsPanel {
         }
     }
 
+    pub fn add_watch(&mut self, name: String, addr: u32) {
+        self.watches.push(name.clone());
+        self.watch_addresses.insert(name, addr);
+    }
+
     pub fn set_active(&mut self, active: bool) {
         self.active = active;
     }

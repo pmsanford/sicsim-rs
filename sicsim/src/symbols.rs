@@ -181,7 +181,7 @@ impl SymbolsPanel {
             .iter()
             .map(|watch| ListItem::new(watch.clone()))
             .collect::<Vec<_>>();
-        let list = self.configure_list(List::new(items));
+        let list = self.configure_list(List::new(items), "Remove watch".into());
         frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut());
     }
 
@@ -198,7 +198,9 @@ impl SymbolsPanel {
             })
             .collect::<Vec<_>>();
         let widths = vec![Constraint::Length(13); 2];
-        let symbols = Table::new(rows).widths(&widths).block(self.block());
+        let symbols = Table::new(rows)
+            .widths(&widths)
+            .block(self.block("Watches".into()));
         frame.render_widget(symbols, self.area);
     }
 
@@ -208,7 +210,7 @@ impl SymbolsPanel {
             .iter()
             .map(|program| ListItem::new(program.clone()))
             .collect::<Vec<_>>();
-        let list = self.configure_list(List::new(items));
+        let list = self.configure_list(List::new(items), "Programs".into());
         frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut())
     }
 
@@ -217,11 +219,11 @@ impl SymbolsPanel {
             .keys()
             .map(|label| ListItem::new(label.clone()))
             .collect::<Vec<_>>();
-        let list = self.configure_list(List::new(items));
+        let list = self.configure_list(List::new(items), format!("Labels in {}", self.program));
         frame.render_stateful_widget(list, self.area, &mut self.list_state.borrow_mut())
     }
 
-    fn block(&self) -> Block {
+    fn block(&self, title: String) -> Block {
         let color = if self.active {
             Color::Green
         } else {
@@ -229,11 +231,12 @@ impl SymbolsPanel {
         };
         Block::default()
             .borders(Borders::ALL)
+            .title(title)
             .border_style(Style::default().fg(color))
     }
 
-    fn configure_list<'a>(&'a self, list: List<'a>) -> List<'a> {
-        list.highlight_symbol("> ").block(self.block())
+    fn configure_list<'a>(&'a self, list: List<'a>, title: String) -> List<'a> {
+        list.highlight_symbol("> ").block(self.block(title))
     }
 }
 

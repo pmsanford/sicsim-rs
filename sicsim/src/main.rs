@@ -292,6 +292,7 @@ enum InputMode {
     Step,
     Jump,
     Breakpoint,
+    CycleLimit,
 }
 
 struct App<'a> {
@@ -393,7 +394,7 @@ impl<'a> App<'a> {
                                 break;
                             }
                         }
-                        InputMode::Jump | InputMode::Breakpoint => {
+                        InputMode::Jump | InputMode::Breakpoint | InputMode::CycleLimit => {
                             self.handle_input(key);
                         }
                     }
@@ -429,7 +430,14 @@ impl<'a> App<'a> {
                             return;
                         }
                     }
-                    _ => {}
+                    InputMode::CycleLimit => {
+                        if let Ok(new_limit) = self.current_input.parse::<u64>() {
+                            self.cycle_limit = new_limit;
+                        } else {
+                            return;
+                        }
+                    }
+                    InputMode::Step => {}
                 }
                 self.mode = InputMode::Step;
             }
@@ -471,8 +479,13 @@ impl<'a> App<'a> {
             self.input_title = "Set breakpoint".into();
             self.mode = InputMode::Breakpoint;
         }
-        if KeyCode::Char('c') == key.code {
+        if KeyCode::Char('C') == key.code {
             self.breakpoints.clear();
+        }
+        if KeyCode::Char('c') == key.code {
+            self.current_input = String::new();
+            self.input_title = "Set cycle limit".into();
+            self.mode = InputMode::CycleLimit;
         }
         if KeyCode::Char('b') == key.code && key.modifiers.contains(KeyModifiers::CONTROL) {
             if self.start_addr > self.bytes_displayed {

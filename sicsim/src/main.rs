@@ -93,6 +93,32 @@ fn source_view(
     frame.render_widget(source, area);
 }
 
+fn target_view(
+    frame: &mut Frame<CrosstermBackend<Stdout>>,
+    vm: &SicXeVm,
+    debugger: &Mutex<SdbDebugger>,
+) {
+    let (target, indirect) = {
+        let debugger = debugger.lock().expect("read mutex");
+        let Some(op) = debugger.get_next_op(vm) else {
+            return;
+        };
+        let (target, indirect) = debugger.find_target_address(vm, &op);
+        (target, indirect)
+    };
+    let target_text = target
+        .map(|target| format!("{:0>6X}", target))
+        .unwrap_or_else(String::new);
+    let indir_text = indirect
+        .map(|indirect| format!("{:0>6X} -> ", indirect))
+        .unwrap_or_else(String::new);
+    if !target_text.is_empty() {
+        let paragraph = Paragraph::new(format!("Target: {}{}", indir_text, target_text));
+        let area = Rect::new(60, 13, 34, 1);
+        frame.render_widget(paragraph, area);
+    }
+}
+
 fn input_view(frame: &mut Frame<CrosstermBackend<Stdout>>, current_input: &str, title: &str) {
     let rect = Rect::new(10, 20, 74, 3);
     let paragraph = Paragraph::new(current_input)
@@ -230,6 +256,8 @@ impl<'a> App<'a> {
                 );
 
                 source_view(frame, &self.vm, &self.debugger);
+
+                target_view(frame, &self.vm, &self.debugger);
 
                 registers_view(frame, &self.vm, &self.debugger);
 

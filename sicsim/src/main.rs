@@ -33,7 +33,7 @@ use ratatui::{
     prelude::{Constraint, CrosstermBackend, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Text},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs},
+    widgets::{Block, Borders, Cell, Clear, List, ListItem, Paragraph, Row, Table, Tabs},
     Frame, Terminal,
 };
 
@@ -64,7 +64,7 @@ fn restore_terminal(
     Ok(terminal.show_cursor()?)
 }
 
-fn source_view(
+fn source_line_view(
     frame: &mut Frame<CrosstermBackend<Stdout>>,
     vm: &SicXeVm,
     debugger: &Mutex<SdbDebugger>,
@@ -116,6 +116,48 @@ fn target_view(
         let paragraph = Paragraph::new(format!("Target: {}{}", indir_text, target_text));
         let area = Rect::new(60, 13, 34, 1);
         frame.render_widget(paragraph, area);
+    }
+}
+
+fn source_view(
+    frame: &mut Frame<CrosstermBackend<Stdout>>,
+    vm: &SicXeVm,
+    debugger: &Mutex<SdbDebugger>,
+) {
+    let width = frame.size().width;
+    if width >= 95 + 40 {
+        let (program, line) = {
+            let debugger = debugger.lock().expect("read mutex");
+            let program = debugger.get_program(vm.PC.as_u32());
+            let line = debugger.find_line_for(vm.PC.as_u32()).clone();
+            (program, line)
+        };
+
+        if let Some(program) = program {
+            let current_line = line.map(|line| line.line_number);
+            let lines = program
+                .sdb
+                .lines
+                .iter()
+                .map(|line| {
+                    (
+                        line.line_number,
+                        format!("{: >3}: {}", line.line_number, line.text),
+                    )
+                })
+                .map(|(line_number, line)| {
+                    let li = ListItem::new(line);
+                    if current_line.map(|ln| ln == line_number).unwrap_or(false) {
+                        li.style(Style::default().fg(Color::Red))
+                    } else {
+                        li
+                    }
+                })
+                .collect::<Vec<_>>();
+            let list = List::new(lines);
+            let area = Rect::new(95, 0, 40, 50);
+            frame.render_widget(list, area)
+        }
     }
 }
 
@@ -254,6 +296,8 @@ impl<'a> App<'a> {
                     self.bytes_displayed,
                     &self.debugger,
                 );
+
+                source_line_view(frame, &self.vm, &self.debugger);
 
                 source_view(frame, &self.vm, &self.debugger);
 

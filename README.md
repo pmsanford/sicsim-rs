@@ -18,4 +18,5 @@ Definitions for debugging symbol formats emitted by the assembler and shared by 
 A WIP operating system for SIC/XE that will include a dispatcher and program loader. Being developed in tandem with interrupts and IO channels. Also includes a test harness to run the operating system using libsic.
 
 ### sicsim
-A binary to run the simulator. Currently just stubs.
+An early visual simulator that allows stepping through the code, visualizing the memory, setting watches and breakpoints, and following the executing through multiple loaded programs:
+![sicsim-demo](https://github.com/pmsanford/sicsim-rs/assets/1696007/354611e9-5c3b-4f04-a9db-4a19639c83a2)

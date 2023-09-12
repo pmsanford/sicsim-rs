@@ -69,15 +69,27 @@ fn source_view(
     vm: &SicXeVm,
     debugger: &Mutex<SdbDebugger>,
 ) {
-    let line = {
+    let (program, line) = {
         let debugger = debugger.lock().expect("read mutex");
-        let line = debugger.find_line_for(vm.PC.as_u32());
-        line.map(|line| line.text.clone())
-            .unwrap_or_else(String::new)
+        let program = debugger.get_program(vm.PC.as_u32());
+        let line = debugger.find_line_for(vm.PC.as_u32()).clone();
+        (program, line)
     };
 
-    let source = Paragraph::new(line);
+    let program = Paragraph::new(format!(
+        "Program: {}",
+        program
+            .map(|prog| prog.sdb.name)
+            .unwrap_or_else(String::new)
+    ));
     let area = Rect::new(60, 11, 34, 1);
+    frame.render_widget(program, area);
+
+    let source = Paragraph::new(
+        line.map(|line| format!("{: >3}: {}", line.line_number, line.text))
+            .unwrap_or_else(String::new),
+    );
+    let area = Rect::new(60, 12, 34, 1);
     frame.render_widget(source, area);
 }
 

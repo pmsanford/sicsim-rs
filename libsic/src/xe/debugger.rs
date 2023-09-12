@@ -15,10 +15,10 @@ use super::{
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-struct LoadedProgram {
-    loaded_at: u32,
-    sdb: Sdb,
-    last_address: u32,
+pub struct LoadedProgram {
+    pub loaded_at: u32,
+    pub sdb: Sdb,
+    pub last_address: u32,
 }
 
 #[allow(non_snake_case)]
@@ -333,6 +333,16 @@ impl SdbDebugger {
         Self::default()
     }
 
+    pub fn get_program(&self, address: u32) -> Option<LoadedProgram> {
+        for (r, p) in self.programs.iter() {
+            if (r.0..=r.1).contains(&address) {
+                return Some(p.clone());
+            }
+        }
+
+        None
+    }
+
     pub fn get_last_op(&self) -> Option<Op> {
         self.last_op
     }
@@ -437,11 +447,11 @@ impl SdbDebugger {
         }
     }
 
-    pub fn find_line_for(&self, address: u32) -> Option<&SdbLine> {
+    pub fn find_line_for(&self, address: u32) -> Option<SdbLine> {
         if let Some(program) = self.find_program(address) {
             let offset = address - program.loaded_at;
             if let Some(line) = program.sdb.offset_map.get(&offset) {
-                return Some(&program.sdb.lines[*line]);
+                return Some(program.sdb.lines[*line].clone());
             }
         }
         None

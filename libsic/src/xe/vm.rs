@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+use super::io_channel::IOChannel;
 use super::op::{
     is_privileged, AddressFlags, AddressMode, AddressRelativeTo, OneByteOp, OneRegOp, Op, Register,
     ShiftOp, TwoRegOp, Variable, VariableOp,
@@ -65,6 +66,7 @@ pub struct SicXeVm {
     pub SW: Word, // 9
     pub I: Word,
     devices: HashMap<u8, Box<dyn Device>>,
+    io_channels: HashMap<u8, IOChannel>,
     #[allow(dead_code)]
     interrupt_queue: Vec<Interrupt>,
     pub debugger: Option<Box<dyn Debugger>>,
@@ -124,6 +126,7 @@ impl SicXeVm {
             SW: [0; 3],
             I: [0; 3],
             devices: HashMap::new(),
+            io_channels: HashMap::new(),
             interrupt_queue: Vec::new(),
             debugger: None,
             cycles_per_second: 1_000_000,
@@ -728,7 +731,13 @@ impl SicXeVm {
                     self.F = f64_to_dword(f);
                 }
                 OneByteOp::SIO => todo!(),
-                OneByteOp::TIO => todo!(),
+                OneByteOp::TIO => {
+                    if self.io_channels.contains_key(&(self.A.as_u32() as u8)) {
+                        set_cc(&mut self.SW, Ordering::Less);
+                    } else {
+                        set_cc(&mut self.SW, Ordering::Equal);
+                    }
+                }
             },
             Op::OneReg(one_reg) => match one_reg.opcode {
                 OneRegOp::CLEAR => {

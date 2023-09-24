@@ -1,7 +1,9 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
+    fs::File,
+    io::{Read, Seek, SeekFrom, Write},
+    path::Path,
     rc::Rc,
-    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -38,7 +40,7 @@ impl CommandCode {
 }
 
 #[derive(Debug, Clone)]
-struct Command {
+pub struct Command {
     command_code: CommandCode,
     device_code: u8,
     byte_count: u16,
@@ -65,6 +67,7 @@ impl Command {
         }
     }
 
+    #[allow(dead_code)]
     fn to_bytes(&self) -> [u8; 6] {
         let mut bytes = [0u8; 6];
         bytes[0] = (self.command_code as u8) << 4;
@@ -78,11 +81,46 @@ impl Command {
     }
 }
 
-struct WorkArea {
+#[derive(Debug, Clone, Copy)]
+pub enum IOChannelStatus {
+    Success = 0x00,
+    DeviceUnavailable = 0x01,
+    DeviceFailure = 0x20,
+    EndOfInput = 0x21,
+}
+
+impl IOChannelStatus {
+    fn as_status_word(&self) -> Word {
+        u32_to_word(*self as u32 | 0x800000u32)
+    }
+
+    fn with_device_error(error_code: u8) -> Word {
+        if error_code >= Self::DeviceFailure as u8 {
+            u32_to_word(error_code as u32 | 0x800000u32)
+        } else {
+            Self::DeviceFailure.as_status_word()
+        }
+    }
+}
+
+pub struct WorkArea {
     program_address: Word,
     esb_address: Word,
     request_queue_address: Word,
+    // TODO: Figure out if there's a spec for this
+    // For now, bits are:
+    // 0: 0 -> in progress, 1 -> done
+    // 1-7: Error code
+    //  0 -> Success
+    //  1 -> Device unavailable
+    //  2-31 -> reserved for io channel controller errors
+    //  32 -> unclassified device failure
+    //  33 -> end of input
+    //  32-63 -> reserved for common failure codes
+    //  64-127 -> device specific
+    // 8-23: Unused
     status_flags: Word,
+    #[allow(dead_code)]
     reserved: Word,
 }
 
@@ -97,6 +135,7 @@ impl WorkArea {
         }
     }
 
+    #[allow(dead_code)]
     fn to_bytes(&self) -> [u8; 15] {
         let mut bytes = [0u8; 15];
         [bytes[0], bytes[1], bytes[2]] = self.program_address;
@@ -109,11 +148,13 @@ impl WorkArea {
     }
 }
 
+#[allow(dead_code)]
 struct EventStatusBlock {
     finished: bool,
     wait_queue_address: u32,
 }
 
+#[allow(dead_code)]
 impl EventStatusBlock {
     fn from_bytes(bytes: [u8; 3]) -> Self {
         Self {
@@ -130,13 +171,13 @@ impl EventStatusBlock {
     }
 }
 
-enum CommandResult {
+pub enum CommandResult {
     MadeProgress(Command),
     Done,
-    Error,
+    Error(u8),
 }
 
-trait IODevice {
+pub trait IODevice {
     fn run_command(&mut self, command: &Command, memory: &mut [u8]) -> CommandResult;
 }
 
@@ -149,7 +190,7 @@ enum State {
 pub struct IOChannel {
     devices: Vec<Option<Box<dyn IODevice>>>,
     program_ctr: u32,
-    work_area_ptr: u32,
+    work_area_ptr: usize,
     current_command: Option<Command>,
     state: State,
 }
@@ -162,10 +203,14 @@ impl IOChannel {
                 None, None,
             ],
             program_ctr: 0,
-            work_area_ptr: 200 + (id as u32 * 10),
+            work_area_ptr: 200 + (id as usize * 10),
             current_command: None,
             state: State::Halted,
         }
+    }
+
+    pub fn add_device(&mut self, id: u8, device: Box<dyn IODevice>) {
+        self.devices[id as usize] = Some(device);
     }
 
     // This function returns true if an interrupt should be generated and
@@ -176,34 +221,48 @@ impl IOChannel {
         }
         let command = self.get_command(memory);
         let Some(ref mut device) = self.devices[command.device_code as usize] else {
+            self.state = State::Halted;
             return true;
         };
         match device.run_command(&command, memory) {
             CommandResult::MadeProgress(cmd) => {
                 self.current_command = Some(cmd);
-                println!("Made progress. New command: {:?}", self.current_command);
                 false
             }
             CommandResult::Done => {
                 self.current_command = None;
-                self.program_ctr += 6;
                 if command.command_code == CommandCode::Halt {
-                    // TODO: Update status flags
+                    self.update_work_area(memory, |work_area| {
+                        work_area.status_flags = IOChannelStatus::Success.as_status_word();
+                    });
+                    self.state = State::Halted;
                     true
                 } else {
+                    self.program_ctr += 6;
                     false
                 }
             }
-            CommandResult::Error => {
-                // TODO: Update status flags
+            CommandResult::Error(device_error) => {
+                self.update_work_area(memory, |work_area| {
+                    if device_error < 0x20 {
+                        work_area.status_flags = IOChannelStatus::DeviceFailure.as_status_word();
+                    } else {
+                        work_area.status_flags =
+                            IOChannelStatus::with_device_error(device_error);
+                    }
+                });
                 self.current_command = None;
+                self.state = State::Halted;
                 true
             }
         }
     }
 
-    pub fn start(&mut self) {
+    pub fn start(&mut self, start_address: Word, memory: &mut [u8]) {
         self.state = State::Running;
+        self.update_work_area(memory, |work_area| {
+            work_area.program_address = start_address
+        });
         self.current_command = None;
         self.program_ctr = 0;
     }
@@ -216,85 +275,208 @@ impl IOChannel {
         if let Some(ref command) = self.current_command {
             command.clone()
         } else {
-            let ptr = self.work_area_ptr as usize;
+            let ptr = self.work_area_ptr;
             let work_area = WorkArea::from_bytes(memory[ptr..ptr + 15].try_into().unwrap());
             let program_ptr = (work_area.program_address.as_u32() + self.program_ctr) as usize;
             Command::from_bytes(memory[program_ptr..program_ptr + 6].try_into().unwrap())
         }
     }
-}
 
-struct RingBufferIODevice {
-    buffer: Vec<u8>,
-    location_ptr: usize,
-}
-
-impl RingBufferIODevice {
-    fn new(buffer: Vec<u8>) -> Self {
-        Self {
-            buffer,
-            location_ptr: 0,
-        }
-    }
-
-    fn advance_ptr(&mut self) {
-        self.location_ptr += 1;
-        self.location_ptr %= self.buffer.len();
-    }
-
-    fn next_command(command: &Command) -> Command {
-        let mut new_command = command.clone();
-        new_command.byte_count -= 1;
-        new_command.memory_address += 1;
-
-        new_command
+    fn update_work_area(&self, memory: &mut [u8], updater: impl FnOnce(&mut WorkArea)) {
+        let work_area_slice = &memory[self.work_area_ptr..self.work_area_ptr + 15];
+        let mut work_area = WorkArea::from_bytes(work_area_slice.try_into().unwrap());
+        updater(&mut work_area);
+        memory[self.work_area_ptr..self.work_area_ptr + 15].copy_from_slice(&work_area.to_bytes());
     }
 }
 
-impl<T: IODevice> IODevice for Arc<Mutex<T>> {
+impl<T: IODevice> IODevice for Rc<RefCell<T>> {
     fn run_command(&mut self, command: &Command, memory: &mut [u8]) -> CommandResult {
-        let mut device = self.lock().expect("mutex");
+        let mut device = self.borrow_mut();
         device.run_command(command, memory)
     }
 }
 
-impl IODevice for RingBufferIODevice {
+pub struct FileIODevice {
+    file: File,
+}
+
+impl FileIODevice {
+    pub fn new<P: AsRef<Path>>(path: P) -> Self {
+        let file = File::options()
+            .read(true)
+            .write(true)
+            .open(path)
+            .expect("Failed to open file");
+        Self { file }
+    }
+}
+
+impl IODevice for FileIODevice {
     fn run_command(&mut self, command: &Command, memory: &mut [u8]) -> CommandResult {
         match command.command_code {
             CommandCode::Halt => CommandResult::Done,
             CommandCode::Read => {
-                let byte = self.buffer[self.location_ptr];
-                let memory_loc = command.memory_address;
-                memory[memory_loc as usize] = byte;
+                let mut byte = [0u8];
+                match self.file.read_exact(&mut byte) {
+                    Ok(_) => {
+                        let memory_loc = command.memory_address;
+                        memory[memory_loc as usize] = byte[0];
 
-                self.advance_ptr();
+                        if command.byte_count == 1 {
+                            return CommandResult::Done;
+                        }
 
-                if command.byte_count == 1 {
-                    return CommandResult::Done;
+                        CommandResult::MadeProgress(advance_rw_command(command))
+                    }
+                    Err(e) => match e.kind() {
+                        std::io::ErrorKind::UnexpectedEof => CommandResult::Error(0x21),
+                        _ => CommandResult::Error(0x20),
+                    },
                 }
-
-                CommandResult::MadeProgress(RingBufferIODevice::next_command(command))
             }
             CommandCode::Write => {
-                let byte = memory[command.memory_address as usize];
-                self.buffer[self.location_ptr] = byte;
+                let byte = [memory[command.memory_address as usize]];
 
-                self.advance_ptr();
+                match self.file.write_all(&byte) {
+                    Ok(_) => {
+                        if command.byte_count == 1 {
+                            return CommandResult::Done;
+                        }
 
-                if command.byte_count == 1 {
-                    return CommandResult::Done;
+                        CommandResult::MadeProgress(advance_rw_command(command))
+                    }
+                    Err(_) => {
+                        CommandResult::Error(0x20)
+                    }
+                }
+            }
+            // Read position
+            CommandCode::Device1 => {
+                let pos = self.file.stream_position();
+                let Ok(pos) = pos else {
+                    return CommandResult::Error(0x20);
+                };
+
+                let max_word = 0xFFFFFFu64;
+
+                if pos > max_word {
+                    return CommandResult::Error(0x20);
                 }
 
-                CommandResult::MadeProgress(RingBufferIODevice::next_command(command))
+                let pos = pos as u32;
+                let addr = command.memory_address as usize;
+
+                memory[addr..addr + 3].copy_from_slice(&u32_to_word(pos));
+
+                CommandResult::Done
             }
-            _ => CommandResult::Error,
+            // Seek
+            CommandCode::Device2 => {
+                let seek_amount = command.byte_count as i16;
+                match self.file.seek(SeekFrom::Current(seek_amount as i64)) {
+                    Ok(_) => CommandResult::Done,
+                    Err(_) => CommandResult::Error(0x20),
+                }
+            }
+            // Read length
+            CommandCode::Device3 => {
+                let Ok(metadata) = self.file.metadata() else {
+                    return CommandResult::Error(0x20);
+                };
+                let len = metadata.len();
+
+                let max_word = 0xFFFFFFu64;
+
+                if len > max_word {
+                    return CommandResult::Error(0x20);
+                }
+
+                let len = len as u32;
+
+                let addr = command.memory_address as usize;
+
+                memory[addr..addr + 3].copy_from_slice(&u32_to_word(len));
+
+                CommandResult::Done
+            }
+            _ => CommandResult::Error(0x20),
         }
     }
+}
+
+fn advance_rw_command(command: &Command) -> Command {
+    let mut new_command = command.clone();
+    new_command.byte_count -= 1;
+    new_command.memory_address += 1;
+
+    new_command
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct RingBufferIODevice {
+        buffer: Vec<u8>,
+        location_ptr: usize,
+    }
+
+    impl RingBufferIODevice {
+        fn new(buffer: Vec<u8>) -> Self {
+            Self {
+                buffer,
+                location_ptr: 0,
+            }
+        }
+
+        fn advance_ptr(&mut self) {
+            self.location_ptr += 1;
+            self.location_ptr %= self.buffer.len();
+        }
+
+        fn next_command(command: &Command) -> Command {
+            let mut new_command = command.clone();
+            new_command.byte_count -= 1;
+            new_command.memory_address += 1;
+
+            new_command
+        }
+    }
+
+    impl IODevice for RingBufferIODevice {
+        fn run_command(&mut self, command: &Command, memory: &mut [u8]) -> CommandResult {
+            match command.command_code {
+                CommandCode::Halt => CommandResult::Done,
+                CommandCode::Read => {
+                    let byte = self.buffer[self.location_ptr];
+                    let memory_loc = command.memory_address;
+                    memory[memory_loc as usize] = byte;
+
+                    self.advance_ptr();
+
+                    if command.byte_count == 1 {
+                        return CommandResult::Done;
+                    }
+
+                    CommandResult::MadeProgress(RingBufferIODevice::next_command(command))
+                }
+                CommandCode::Write => {
+                    let byte = memory[command.memory_address as usize];
+                    self.buffer[self.location_ptr] = byte;
+
+                    self.advance_ptr();
+
+                    if command.byte_count == 1 {
+                        return CommandResult::Done;
+                    }
+
+                    CommandResult::MadeProgress(RingBufferIODevice::next_command(command))
+                }
+                _ => CommandResult::Error(0x20),
+            }
+        }
+    }
 
     #[test]
     fn test_command_code() {
@@ -354,18 +536,18 @@ mod tests {
 
         let mut device0 = RingBufferIODevice::new(vec![0; 32]);
         let buffer = &mut device0.buffer;
-        buffer[0] = 'P' as u8;
-        buffer[1] = 'a' as u8;
-        buffer[2] = 'u' as u8;
-        buffer[3] = 'l' as u8;
+        buffer[0] = b'P';
+        buffer[1] = b'a';
+        buffer[2] = b'u';
+        buffer[3] = b'l';
         let device1 = RingBufferIODevice::new(vec![0; 32]);
-        let device1 = Arc::new(Mutex::new(device1));
+        let device1 = Rc::new(RefCell::new(device1));
 
         let mut channel = IOChannel::new(0);
         channel.devices[0] = Some(Box::new(device0));
         channel.devices[1] = Some(Box::new(device1.clone()));
 
-        channel.start();
+        channel.start(u32_to_word(0), &mut memory);
 
         loop {
             if channel.step(&mut memory) {
@@ -373,7 +555,7 @@ mod tests {
             }
         }
 
-        let device1 = device1.lock().unwrap();
+        let device1 = device1.borrow();
 
         let buffer = &device1.buffer;
         let output = String::from_utf8_lossy(&buffer[0..4]);

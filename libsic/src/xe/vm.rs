@@ -52,6 +52,11 @@ impl Debugger for PrintlnDebugger {
     }
 }
 
+struct QueuedInterrupt {
+    interrupt: Interrupt,
+    code: u8,
+}
+
 #[allow(non_snake_case)]
 pub struct SicXeVm {
     pub memory: Vec<u8>,
@@ -68,7 +73,7 @@ pub struct SicXeVm {
     devices: HashMap<u8, Box<dyn Device>>,
     io_channels: HashMap<u8, IOChannel>,
     #[allow(dead_code)]
-    interrupt_queue: Vec<Interrupt>,
+    interrupt_queue: Vec<QueuedInterrupt>,
     pub debugger: Option<Box<dyn Debugger>>,
     cycles_per_second: u64,
     cycles: u64,
@@ -137,6 +142,10 @@ impl SicXeVm {
 
     pub fn add_device(&mut self, device: Box<dyn Device>, address: u8) -> Option<Box<dyn Device>> {
         self.devices.insert(address, device)
+    }
+
+    pub fn add_io_channel(&mut self, id: u8, io_channel: IOChannel) -> Option<IOChannel> {
+        self.io_channels.insert(id, io_channel)
     }
 
     pub fn remove_device(&mut self, address: u8) -> Option<Box<dyn Device>> {
@@ -254,7 +263,7 @@ impl SicXeVm {
             self.I = u32_to_word(0.max(i - 1));
             if self.I.as_u32() == 0 {
                 self.debug_interrupt(Interrupt::Timer);
-                self.handle_interrupt(Interrupt::Timer)
+                self.handle_interrupt(Interrupt::Timer, 0)
                     .expect("Interval interrupt");
             }
         }
@@ -444,14 +453,12 @@ impl SicXeVm {
         match error {
             OpError::AddressOutOfRange { .. } => {
                 // Code 02 = Address out of range
-                self.SW[2] = 2;
-                self.handle_interrupt(Interrupt::Program)
+                self.handle_interrupt(Interrupt::Program, 2)
                     .expect("Error in interrupt handler");
             }
             OpError::InvalidInstruction { .. } => {
                 // Code 00 = Illegal instruction
-                self.SW[2] = 0;
-                self.handle_interrupt(Interrupt::Program)
+                self.handle_interrupt(Interrupt::Program, 0)
                     .expect("Error in interrupt handler");
             }
         }
@@ -461,7 +468,7 @@ impl SicXeVm {
         let mut next_interrupt = None;
         let mut new_queue = vec![];
         for interrupt in self.interrupt_queue.drain(..) {
-            if next_interrupt.is_none() && !interrupt.is_masked(&self.SW) {
+            if next_interrupt.is_none() && !interrupt.interrupt.is_masked(&self.SW) {
                 next_interrupt = Some(interrupt);
                 break;
             } else {
@@ -474,7 +481,7 @@ impl SicXeVm {
         mem::swap(&mut self.interrupt_queue, &mut new_queue);
 
         if let Some(interrupt) = next_interrupt {
-            self.handle_interrupt(interrupt)?;
+            self.handle_interrupt(interrupt.interrupt, interrupt.code)?;
         }
 
         Ok(())
@@ -485,25 +492,37 @@ impl SicXeVm {
             self.program_interrupt(err);
         }
         let op = self.get_op_at_pc();
+
         if op.as_ref().map(is_privileged).unwrap_or(false) && !supervisor_mode(&self.SW) {
             // TODO: Interrupt, privileged instruction
             self.debug_interrupt(Interrupt::Program);
             self.SW[2] = 1;
-            self.handle_interrupt(Interrupt::Program)
+            self.handle_interrupt(Interrupt::Program, 1)
                 .expect("Error in interrupt handler");
         }
         match op {
             Ok(op) => {
                 self.debug_op_read(&op);
                 self.PC = u32_to_word(self.PC.as_u32() + op.len());
+                
                 if is_privileged(&op) && !supervisor_mode(&self.SW) {
                     self.debug_interrupt(Interrupt::Program);
                     self.SW[2] = 1;
-                    self.handle_interrupt(Interrupt::Program)
+                    self.handle_interrupt(Interrupt::Program, 1)
                         .expect("Error in interrupt handler");
                 }
                 if let Err(err) = self.run_op(&op) {
                     self.program_interrupt(err);
+                }
+                for channel_num in 0..16 {
+                    if let Some(io_channel) = self.io_channels.get_mut(&channel_num) {
+                        let should_interrupt = io_channel.step(&mut self.memory);
+                        if should_interrupt {
+                            self.debug_interrupt(Interrupt::Io);
+                            self.handle_interrupt(Interrupt::Io, channel_num)
+                                .expect("Error in interrupt handler");
+                        }
+                    }
                 }
                 self.debug_op_executed(&op);
             }
@@ -722,7 +741,12 @@ impl SicXeVm {
                     let int = self.A.as_i32();
                     self.F = f64_to_dword(int as f64);
                 }
-                OneByteOp::HIO => todo!(),
+                OneByteOp::HIO => {
+                    let channel_num = self.A.as_u32();
+                    if let Some(channel) = self.io_channels.get_mut(&(channel_num as u8)) {
+                        channel.halt();
+                    }
+                }
                 OneByteOp::NORM => {
                     // NB: The only way this does anything is if the floats
                     // are manipulated outside of the floating point
@@ -730,7 +754,12 @@ impl SicXeVm {
                     let f = self.F.as_f64();
                     self.F = f64_to_dword(f);
                 }
-                OneByteOp::SIO => todo!(),
+                OneByteOp::SIO => {
+                    let channel_num = self.A.as_u32();
+                    if let Some(channel) = self.io_channels.get_mut(&(channel_num as u8)) {
+                        channel.start(self.S, &mut self.memory);
+                    }
+                }
                 OneByteOp::TIO => {
                     if self.io_channels.contains_key(&(self.A.as_u32() as u8)) {
                         set_cc(&mut self.SW, Ordering::Less);
@@ -810,18 +839,18 @@ impl SicXeVm {
             },
             // Described on p333
             Op::Svc(n) => {
-                self.SW[2] = *n;
-                self.handle_interrupt(Interrupt::Svc)?;
+                self.handle_interrupt(Interrupt::Svc, *n)?;
             }
         }
 
         Ok(())
     }
 
-    fn handle_interrupt(&mut self, interrupt: Interrupt) -> Result<(), OpError> {
+    fn handle_interrupt(&mut self, interrupt: Interrupt, code: u8) -> Result<(), OpError> {
         //TODO: Treat these like instructions that increment the cycle count etc
         if interrupt.is_masked(&self.SW) {
-            self.interrupt_queue.push(interrupt);
+            self.interrupt_queue
+                .push(QueuedInterrupt { interrupt, code });
             return Ok(());
         }
         let work_area = interrupt.work_area();
@@ -838,6 +867,7 @@ impl SicXeVm {
         self.set_dword_at(work_area + 30, &AddressFlags::immediate(), self.F)?;
 
         self.SW = self.word_at(work_area)?;
+        self.SW[2] = code;
         self.PC = self.word_at(work_area + 3)?;
 
         Ok(())

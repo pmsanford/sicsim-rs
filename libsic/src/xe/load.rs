@@ -349,6 +349,10 @@ impl ProgramLoader {
             let len = m.length;
             let mut addr = m.address as usize + program_start;
             let (cur, masks) = match len {
+                6 => (
+                    [memory[addr], memory[addr + 1], memory[addr + 2]].as_u32() & 0x00_FF_FF_FFu32,
+                    [0x00, 0x00, 0x00],
+                ),
                 5 => (
                     [memory[addr], memory[addr + 1], memory[addr + 2]].as_u32() & 0x00_0F_FF_FFu32,
                     [0xF0, 0x00, 0x00],

@@ -221,7 +221,7 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
         bail!("expected program name");
     };
 
-    let first_csect = start_label.label_name;
+    let first_csect = start_label.label_name.clone();
 
     let mut debug = Sdb::new(&first_csect, start_addr as usize);
 
@@ -307,9 +307,29 @@ pub fn pass_two(mut data: AsmData) -> Result<(Vec<Record>, Sdb)> {
                             }
                             Value::Number(i) => *i,
                             Value::String(s) => {
-                                data.get_label(&current_csect.name, &s.0)?
-                                    .ok_or_else(|| anyhow!(r"Couldn't find label {}", s.0))?
-                                    .offset
+                                if let Some(label) = data.get_label(&current_csect.name, &s.0)? {
+                                    current_csect.modifications.push(Modification {
+                                        address: addr,
+                                        length: 6,
+                                        add: true,
+                                        symbol: start_label.label_name.clone(),
+                                    });
+
+                                    label.offset
+                                } else if let Some(extref) =
+                                    data.get_extref(&current_csect.name, &s.0)?
+                                {
+                                    current_csect.modifications.push(Modification {
+                                        address: addr,
+                                        length: 6,
+                                        add: true,
+                                        symbol: extref.symbol_name,
+                                    });
+
+                                    0
+                                } else {
+                                    bail!("Couldn't find sybol {s:?}");
+                                }
                             }
                             Value::List(_) => bail!("got list argument for WORD"),
                         },

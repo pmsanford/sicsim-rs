@@ -21,9 +21,10 @@ use crossterm::{
 };
 use itertools::Itertools;
 use libsic::{
-    word::DWordExt,
+    word::{u32_to_word, DWordExt},
     xe::{
         debugger::{SdbConsoleDebugger, SdbDebugger},
+        io_channel::{FileIODevice, IOChannel},
         load::ProgramLoader,
         vm::SicXeVm,
     },
@@ -171,7 +172,7 @@ fn input_view(frame: &mut Frame<CrosstermBackend<Stdout>>, current_input: &str, 
 }
 
 fn load_program(debugger: &mut SdbDebugger, loader: &mut ProgramLoader, name: &str, load_at: u32) {
-    let mut path = PathBuf::from("../sickos/src/bin/");
+    let mut path = PathBuf::from("./");
     path.push(name);
     let program = fs::read_to_string(path.with_extension("ebj")).unwrap();
     let program_sdb = fs::read_to_string(path.with_extension("sdb")).unwrap();
@@ -210,28 +211,31 @@ impl<'a> App<'a> {
         let mut vm = SicXeVm::empty();
         let mut loader = ProgramLoader::new();
 
+        let mut ioc0 = IOChannel::new(0);
+        let mut ioc1 = IOChannel::new(1);
+
+        let read_device = FileIODevice::new("./from.txt");
+        ioc0.add_device(0, Box::new(read_device));
+        let write_device = FileIODevice::new("./to.txt");
+        ioc1.add_device(0, Box::new(write_device));
+
+        vm.add_io_channel(0, ioc0);
+        vm.add_io_channel(1, ioc1);
+
         let mut debugger = SdbDebugger::new();
-        load_program(&mut debugger, &mut loader, "bootloader", 0x0);
+        load_program(&mut debugger, &mut loader, "copy_io_channel", 0x500);
+        load_program(&mut debugger, &mut loader, "noop_io_interrupt", 0x1000);
 
-        load_program(&mut debugger, &mut loader, "work_areas", 0x100);
-
-        load_program(&mut debugger, &mut loader, "program_int", 0x30);
-
-        load_program(&mut debugger, &mut loader, "dispatcher", 0x200);
-
-        load_program(&mut debugger, &mut loader, "wake_counter", 0x7D0);
-
-        load_program(&mut debugger, &mut loader, "wake_counter", 0x7E0);
-
-        load_program(&mut debugger, &mut loader, "wake_counter", 0x7F0);
+        vm.memory[0x193..0x196].copy_from_slice(&u32_to_word(0x1000));
+        vm.memory[0x190] = 0x80;
 
         loader.copy_all_to(&mut vm);
 
         // Set interrupt timer at 10 sec
-        vm.I = [0, 0, 10];
+        //vm.I = [0, 0, 10];
         // Need to start in privileged mode
         vm.SW[0] |= 0x80;
-        vm.set_pc(0);
+        vm.set_pc(0x500);
         let labels = debugger.get_labels();
         let programs = labels
             .iter()

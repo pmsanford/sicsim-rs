@@ -1,0 +1,29 @@
+. This must be run in privileged mode
+IOCST   START   0
+        LDA    #0
+        LDS    #READ
+        SIO    
+        LDA    #128
+        SHIFTL  A,16
+RDLP    COMP   @RDWKA
+        JGT     RDLP
+        LDA    #1
+        LDS    #WRITE
+        SIO
+        LDA    #128
+        SHIFTL  A,16
+WRLP    COMP   @WRWKA
+        JGT     WRLP
+DONE    J       DONE
+RDWKA   WORD    209
+WRWKA   WORD    219
+READ    BYTE    X'10'
+        BYTE    X'0020'
+        WORD    BUFIN
+        BYTE    X'000000000000'
+WRITE   BYTE    X'20'
+        BYTE    X'0020'
+        WORD    BUFIN
+        BYTE    X'000000000000'
+BUFIN   RESB    32
+        END     IOCST

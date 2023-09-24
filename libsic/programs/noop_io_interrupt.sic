@@ -1,0 +1,4 @@
+IOINT   START   0
+        LPS    @PGST
+PGST    WORD    406
+        END     IOINT

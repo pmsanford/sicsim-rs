@@ -247,8 +247,7 @@ impl IOChannel {
                     if device_error < 0x20 {
                         work_area.status_flags = IOChannelStatus::DeviceFailure.as_status_word();
                     } else {
-                        work_area.status_flags =
-                            IOChannelStatus::with_device_error(device_error);
+                        work_area.status_flags = IOChannelStatus::with_device_error(device_error);
                     }
                 });
                 self.current_command = None;
@@ -346,9 +345,7 @@ impl IODevice for FileIODevice {
 
                         CommandResult::MadeProgress(advance_rw_command(command))
                     }
-                    Err(_) => {
-                        CommandResult::Error(0x20)
-                    }
+                    Err(_) => CommandResult::Error(0x20),
                 }
             }
             // Read position

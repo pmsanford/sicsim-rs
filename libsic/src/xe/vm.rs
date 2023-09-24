@@ -504,7 +504,7 @@ impl SicXeVm {
             Ok(op) => {
                 self.debug_op_read(&op);
                 self.PC = u32_to_word(self.PC.as_u32() + op.len());
-                
+
                 if is_privileged(&op) && !supervisor_mode(&self.SW) {
                     self.debug_interrupt(Interrupt::Program);
                     self.SW[2] = 1;

@@ -6,5 +6,6 @@ members = [
   "sicasm2",
   "sicdbg",
   "sickos",
+  "siclsp",
   "sicsim"
   ]

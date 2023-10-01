@@ -24,7 +24,9 @@ pub enum ParseError {
     InvalidOpcode(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, EnumString, Eq, PartialEq, Clone, Copy, strum_macros::Display)]
+#[derive(
+    Serialize, Deserialize, Debug, EnumString, Eq, PartialEq, Clone, Copy, strum_macros::Display,
+)]
 pub enum Assembler {
     START,
     BASE,

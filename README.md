@@ -17,6 +17,10 @@ Definitions for debugging symbol formats emitted by the assembler and shared by 
 ### sickos
 A WIP operating system for SIC/XE that will include a dispatcher and program loader. Being developed in tandem with interrupts and IO channels. Also includes a test harness to run the operating system using libsic.
 
+### siclsp
+A language server implementatin for SIC source files. Currently only supports semantic tokens
+![image](https://github.com/pmsanford/sicsim-rs/assets/1696007/b30975a6-bd39-4eff-bec3-158fbda54282)
+
 ### sicsim
 An early visual simulator that allows stepping through the code, visualizing the memory, setting watches and breakpoints, and following the executing through multiple loaded programs:
 ![sicsim-demo](https://github.com/pmsanford/sicsim-rs/assets/1696007/354611e9-5c3b-4f04-a9db-4a19639c83a2)

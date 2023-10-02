@@ -18,7 +18,7 @@ Definitions for debugging symbol formats emitted by the assembler and shared by 
 A WIP operating system for SIC/XE that will include a dispatcher and program loader. Being developed in tandem with interrupts and IO channels. Also includes a test harness to run the operating system using libsic.
 
 ### siclsp
-A language server implementatin for SIC source files. Currently only supports semantic tokens
+A language server implementatin for SIC source files. Currently supports semantic tokens, go to definition, and find references.
 ![image](https://github.com/pmsanford/sicsim-rs/assets/1696007/b30975a6-bd39-4eff-bec3-158fbda54282)
 
 ### sicsim

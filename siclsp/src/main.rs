@@ -5,6 +5,9 @@ use once_cell::sync::Lazy;
 use rangemap::RangeMap;
 use sicasm2::parser::{self, Label, ProgramLine, Value};
 use tokio::sync::Mutex;
+use tower_lsp::lsp_types::{
+    GotoDefinitionParams, GotoDefinitionResponse, Location, OneOf, Position, Range,
+};
 #[allow(unused_imports)]
 use tower_lsp::{
     lsp_types::{
@@ -40,13 +43,27 @@ static MOD_MAP: Lazy<HashMap<SemanticTokenModifier, u32>> = Lazy::new(|| {
     ])
 });
 
+#[derive(Debug, Clone)]
+struct LocationRange {
+    line: u32,
+    col: u32,
+    length: u32,
+}
+
+#[derive(Debug, Clone)]
+struct LabelInfo {
+    line: u32,
+    length: u32,
+    references: Vec<LocationRange>,
+}
+
 #[allow(dead_code)]
 struct Lsp {
     client: Client,
     text: Mutex<Option<String>>,
-    label_usage_map: Mutex<RangeMap<u32, u32>>,
-    label_reference_map: Mutex<RangeMap<u32, Vec<u32>>>,
     semantic_tokens: Mutex<Vec<SemanticToken>>,
+    labels: Mutex<HashMap<String, LabelInfo>>,
+    label_locations: Mutex<HashMap<u32, RangeMap<u32, String>>>,
 }
 
 impl Lsp {
@@ -92,7 +109,14 @@ impl Lsp {
                 last_col = 0;
                 last_line = line.line_no as u32;
 
-                label_defs.insert(label.0.clone(), (line.line_no as u32, label.0.len() as u32));
+                label_defs.insert(
+                    label.0.clone(),
+                    LabelInfo {
+                        line: line.line_no as u32,
+                        length: label.0.len() as u32,
+                        references: Vec::new(),
+                    },
+                );
 
                 tokens.push(token);
             }
@@ -166,7 +190,11 @@ impl Lsp {
                         label_references
                             .entry(s.clone())
                             .or_insert_with(Vec::new)
-                            .push((s_idx, s.len() as u32));
+                            .push(LocationRange {
+                                line: line.line_no as u32,
+                                col: s_idx,
+                                length: s.len() as u32,
+                            });
 
                         last_col = s_idx;
                         last_line = line.line_no as u32;
@@ -249,18 +277,26 @@ impl Lsp {
 
         *self.semantic_tokens.lock().await = tokens;
 
-        let mut usage_map = self.label_usage_map.lock().await;
-        let mut reference_map = self.label_reference_map.lock().await;
+        let mut labels = self.labels.lock().await;
+        let mut locations = self.label_locations.lock().await;
 
-        for (label, (loc, label_len)) in label_defs.iter() {
-            if let Some(references) = label_references.get(label) {
-                let mut reference_locations = Vec::new();
-                for (start, len) in references.iter().copied() {
-                    usage_map.insert(start..start + len, *loc);
-                    reference_locations.push(start);
+        for (label, mut label_info) in label_defs {
+            if let Some(references) = label_references.get(&label) {
+                for loc in references.iter().cloned() {
+                    locations
+                        .entry(loc.line)
+                        .or_insert_with(RangeMap::new)
+                        .insert(loc.col..loc.col + loc.length, label.clone());
+                    label_info.references.push(loc);
                 }
-                reference_map.insert(*loc..*loc + *label_len, reference_locations);
             }
+
+            locations
+                .entry(label_info.line)
+                .or_insert_with(RangeMap::new)
+                .insert(0..label_info.length, label.clone());
+
+            labels.insert(label, label_info);
         }
 
         Ok(())
@@ -298,6 +334,7 @@ impl LanguageServer for Lsp {
         let capabilities = ServerCapabilities {
             semantic_tokens_provider: Some(tokens),
             text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+            definition_provider: Some(OneOf::Left(true)),
             ..ServerCapabilities::default()
         };
         let result = InitializeResult {
@@ -331,6 +368,38 @@ impl LanguageServer for Lsp {
         Ok(Some(result))
     }
 
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<GotoDefinitionResponse>> {
+        let pos = params.text_document_position_params.position;
+
+        if let Some(label) = self
+            .label_locations
+            .lock()
+            .await
+            .get(&pos.line)
+            .and_then(|rm| rm.get(&pos.character))
+        {
+            let info = &self.labels.lock().await[label];
+            Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: params.text_document_position_params.text_document.uri,
+                range: Range {
+                    start: Position {
+                        line: info.line,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: info.line,
+                        character: info.length,
+                    },
+                },
+            })))
+        } else {
+            Ok(None)
+        }
+    }
+
     async fn shutdown(&self) -> tower_lsp::jsonrpc::Result<()> {
         Ok(())
     }
@@ -346,9 +415,9 @@ async fn main() -> Result<()> {
     let (service, socket) = LspService::build(|client| Lsp {
         client,
         text: Mutex::new(None),
-        label_usage_map: Mutex::new(RangeMap::new()),
-        label_reference_map: Mutex::new(RangeMap::new()),
         semantic_tokens: Mutex::new(Vec::new()),
+        labels: Mutex::new(HashMap::new()),
+        label_locations: Mutex::new(HashMap::new()),
     })
     .finish();
 

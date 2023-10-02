@@ -7,6 +7,7 @@ use sicasm2::parser::{self, Label, ProgramLine, Value};
 use tokio::sync::Mutex;
 use tower_lsp::lsp_types::{
     GotoDefinitionParams, GotoDefinitionResponse, Location, OneOf, Position, Range,
+    ReferenceParams, Url,
 };
 #[allow(unused_imports)]
 use tower_lsp::{
@@ -44,17 +45,9 @@ static MOD_MAP: Lazy<HashMap<SemanticTokenModifier, u32>> = Lazy::new(|| {
 });
 
 #[derive(Debug, Clone)]
-struct LocationRange {
-    line: u32,
-    col: u32,
-    length: u32,
-}
-
-#[derive(Debug, Clone)]
 struct LabelInfo {
-    line: u32,
-    length: u32,
-    references: Vec<LocationRange>,
+    definition: Location,
+    references: Vec<Location>,
 }
 
 #[allow(dead_code)]
@@ -68,7 +61,7 @@ struct Lsp {
 
 impl Lsp {
     #[allow(unused_assignments)]
-    async fn on_change(&self, text: String) -> Result<()> {
+    async fn on_change(&self, uri: Url, text: String) -> Result<()> {
         *self.text.lock().await = Some(text.clone());
         let lines = parser::parse_program(&text)?;
 
@@ -80,40 +73,44 @@ impl Lsp {
         let mut last_line = 0;
         for line in lines {
             let mut last_col = 0;
+            let line_no = line.line_no as u32;
             let ProgramLine::Assembly(data) = line.data else {
                 if let ProgramLine::Comment(_) = line.data {
                     let token = SemanticToken {
-                        delta_line: line.line_no as u32 - last_line,
+                        delta_line: line_no - last_line,
                         delta_start: 0,
                         length: line.text.len() as u32,
                         token_type: TYPE_MAP[&SemanticTokenType::COMMENT],
                         token_modifiers_bitset: 0,
                     };
                     last_col = 0;
-                    last_line = line.line_no as u32;
+                    last_line = line_no;
 
                     tokens.push(token);
                 }
                 continue;
             };
             if let Some(label) = data.label {
+                let length = label.0.len() as u32;
                 let token = SemanticToken {
-                    delta_line: line.line_no as u32 - last_line,
+                    delta_line: line_no - last_line,
                     delta_start: 0,
-                    length: label.0.len() as u32,
+                    length,
                     token_type: TYPE_MAP[&SemanticTokenType::VARIABLE],
                     token_modifiers_bitset: MOD_MAP[&SemanticTokenModifier::DEFINITION]
                         | MOD_MAP[&SemanticTokenModifier::DECLARATION],
                 };
 
                 last_col = 0;
-                last_line = line.line_no as u32;
+                last_line = line_no;
 
                 label_defs.insert(
                     label.0.clone(),
                     LabelInfo {
-                        line: line.line_no as u32,
-                        length: label.0.len() as u32,
+                        definition: Location::new(
+                            uri.clone(),
+                            Range::new(Position::new(line_no, 0), Position::new(line_no, length)),
+                        ),
                         references: Vec::new(),
                     },
                 );
@@ -136,18 +133,18 @@ impl Lsp {
 
             if data.extended {
                 tokens.push(SemanticToken {
-                    delta_line: line.line_no as u32 - last_line,
+                    delta_line: line_no - last_line,
                     delta_start: dir_idx - 1 - last_col,
                     length: 1,
                     token_type: TYPE_MAP[&SemanticTokenType::OPERATOR],
                     token_modifiers_bitset: 0,
                 });
                 last_col = dir_idx - 1;
-                last_line = line.line_no as u32;
+                last_line = line_no;
             }
 
             tokens.push(SemanticToken {
-                delta_line: line.line_no as u32 - last_line,
+                delta_line: line_no - last_line,
                 delta_start: dir_idx - last_col,
                 length: dir_str.len() as u32,
                 token_type: TYPE_MAP[&if matches!(data.directive, parser::Directive::Command(_)) {
@@ -159,30 +156,31 @@ impl Lsp {
             });
 
             last_col = dir_idx;
-            last_line = line.line_no as u32;
+            last_line = line_no;
 
             if let Some(arg) = data.argument {
                 match arg {
                     parser::Argument::Value(Value::String(Label(s))) => {
+                        let length = s.len() as u32;
                         let s_idx = line.text.rfind(&s).unwrap() as u32;
                         if matches!(
                             data.address_modifier,
                             parser::AddressModifier::Indirect | parser::AddressModifier::Immediate
                         ) {
                             tokens.push(SemanticToken {
-                                delta_line: line.line_no as u32 - last_line,
+                                delta_line: line_no - last_line,
                                 delta_start: s_idx - 1 - last_col,
                                 length: 1,
                                 token_type: TYPE_MAP[&SemanticTokenType::OPERATOR],
                                 token_modifiers_bitset: 0,
                             });
                             last_col = s_idx - 1;
-                            last_line = line.line_no as u32;
+                            last_line = line_no;
                         }
                         tokens.push(SemanticToken {
-                            delta_line: line.line_no as u32 - last_line,
+                            delta_line: line_no - last_line,
                             delta_start: s_idx - last_col,
-                            length: s.len() as u32,
+                            length,
                             token_type: TYPE_MAP[&SemanticTokenType::VARIABLE],
                             token_modifiers_bitset: 0,
                         });
@@ -190,14 +188,16 @@ impl Lsp {
                         label_references
                             .entry(s.clone())
                             .or_insert_with(Vec::new)
-                            .push(LocationRange {
-                                line: line.line_no as u32,
-                                col: s_idx,
-                                length: s.len() as u32,
+                            .push(Location {
+                                uri: uri.clone(),
+                                range: Range::new(
+                                    Position::new(line_no, s_idx),
+                                    Position::new(line_no, s_idx + length),
+                                ),
                             });
 
                         last_col = s_idx;
-                        last_line = line.line_no as u32;
+                        last_line = line_no;
                     }
                     parser::Argument::Value(Value::Number(n)) => {
                         let nstr = n.to_string();
@@ -207,7 +207,7 @@ impl Lsp {
                             parser::AddressModifier::Indirect
                             | parser::AddressModifier::Immediate => {
                                 tokens.push(SemanticToken {
-                                    delta_line: line.line_no as u32 - last_line,
+                                    delta_line: line_no - last_line,
                                     delta_start: n_idx - 1 - last_col,
                                     length: 1,
                                     token_type: TYPE_MAP[&SemanticTokenType::OPERATOR],
@@ -215,11 +215,11 @@ impl Lsp {
                                 });
 
                                 last_col = n_idx - 1;
-                                last_line = line.line_no as u32;
+                                last_line = line_no;
                             }
                         }
                         tokens.push(SemanticToken {
-                            delta_line: line.line_no as u32 - last_line,
+                            delta_line: line_no - last_line,
                             delta_start: n_idx - last_col,
                             length: nstr.len() as u32,
                             token_type: TYPE_MAP[&SemanticTokenType::NUMBER],
@@ -227,7 +227,7 @@ impl Lsp {
                         });
 
                         last_col = n_idx;
-                        last_line = line.line_no as u32;
+                        last_line = line_no;
                     }
                     parser::Argument::Value(Value::Bytes(b)) => {
                         let b_str = b.iter().map(|b| format!("{:0>2X}", b)).collect::<Vec<_>>();
@@ -239,7 +239,7 @@ impl Lsp {
                             .unwrap() as u32;
 
                         tokens.push(SemanticToken {
-                            delta_line: line.line_no as u32 - last_line,
+                            delta_line: line_no - last_line,
                             delta_start: b_idx - last_col,
                             length: b_str.len() as u32,
                             token_type: TYPE_MAP[&SemanticTokenType::NUMBER],
@@ -247,7 +247,7 @@ impl Lsp {
                         });
 
                         last_col = b_idx;
-                        last_line = line.line_no as u32;
+                        last_line = line_no;
                     }
                     parser::Argument::Value(Value::Chars(c)) => {
                         let b_str = c.iter().map(|b| *b as char).collect::<String>();
@@ -258,7 +258,7 @@ impl Lsp {
                             .unwrap() as u32;
 
                         tokens.push(SemanticToken {
-                            delta_line: line.line_no as u32 - last_line,
+                            delta_line: line_no - last_line,
                             delta_start: b_idx - last_col,
                             length: b_str.len() as u32,
                             token_type: TYPE_MAP[&SemanticTokenType::STRING],
@@ -266,7 +266,7 @@ impl Lsp {
                         });
 
                         last_col = b_idx;
-                        last_line = line.line_no as u32;
+                        last_line = line_no;
                     }
                     parser::Argument::Value(_) => {}
                     parser::Argument::Expr(_) => {}
@@ -284,17 +284,24 @@ impl Lsp {
             if let Some(references) = label_references.get(&label) {
                 for loc in references.iter().cloned() {
                     locations
-                        .entry(loc.line)
+                        .entry(loc.range.start.line)
                         .or_insert_with(RangeMap::new)
-                        .insert(loc.col..loc.col + loc.length, label.clone());
+                        .insert(
+                            loc.range.start.character..loc.range.end.character,
+                            label.clone(),
+                        );
                     label_info.references.push(loc);
                 }
             }
 
             locations
-                .entry(label_info.line)
+                .entry(label_info.definition.range.start.line)
                 .or_insert_with(RangeMap::new)
-                .insert(0..label_info.length, label.clone());
+                .insert(
+                    label_info.definition.range.start.character
+                        ..label_info.definition.range.end.character,
+                    label.clone(),
+                );
 
             labels.insert(label, label_info);
         }
@@ -335,6 +342,7 @@ impl LanguageServer for Lsp {
             semantic_tokens_provider: Some(tokens),
             text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             definition_provider: Some(OneOf::Left(true)),
+            references_provider: Some(OneOf::Left(true)),
             ..ServerCapabilities::default()
         };
         let result = InitializeResult {
@@ -345,13 +353,18 @@ impl LanguageServer for Lsp {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.on_change(params.text_document.text).await.unwrap();
+        self.on_change(params.text_document.uri, params.text_document.text)
+            .await
+            .unwrap();
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.on_change(params.content_changes[0].text.clone())
-            .await
-            .unwrap();
+        self.on_change(
+            params.text_document.uri,
+            params.content_changes[0].text.clone(),
+        )
+        .await
+        .unwrap();
     }
 
     async fn semantic_tokens_full(
@@ -382,19 +395,29 @@ impl LanguageServer for Lsp {
             .and_then(|rm| rm.get(&pos.character))
         {
             let info = &self.labels.lock().await[label];
-            Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                uri: params.text_document_position_params.text_document.uri,
-                range: Range {
-                    start: Position {
-                        line: info.line,
-                        character: 0,
-                    },
-                    end: Position {
-                        line: info.line,
-                        character: info.length,
-                    },
-                },
-            })))
+            Ok(Some(GotoDefinitionResponse::Scalar(
+                info.definition.clone(),
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn references(
+        &self,
+        params: ReferenceParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<Vec<Location>>> {
+        let pos = params.text_document_position.position;
+
+        if let Some(label) = self
+            .label_locations
+            .lock()
+            .await
+            .get(&pos.line)
+            .and_then(|rm| rm.get(&pos.character))
+        {
+            let info = &self.labels.lock().await[label];
+            Ok(Some(info.references.clone()))
         } else {
             Ok(None)
         }

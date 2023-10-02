@@ -496,7 +496,7 @@ pub struct ParserLine {
 }
 
 fn parse_line(i: &str, line_no: usize) -> Result<ProgramLine> {
-    Ok(if i.is_empty() {
+    Ok(if i.trim().is_empty() {
         ProgramLine::Empty
     } else if i.trim_start().starts_with('.') {
         ProgramLine::Comment(Comment(i.into()))
